@@ -1,12 +1,8 @@
 class Tool:
-    name: str = ""
-    description: str = ""
-    stages: list[str] = []
-    kind: str = "action"
-
-    def __init__(self, name: str, description: str):
+    def __init__(self, name, description, func):
         self.name = name
         self.description = description
+        self.func = func
 
     def run(self, *args, **kwargs):
-        raise NotImplementedError("Subclasses must implement this method.")
+        return self.func(*args, **kwargs)
