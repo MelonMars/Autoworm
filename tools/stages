@@ -1,0 +1,9 @@
+discover_host
+discover_network
+exploit_foothold
+priv_esc_discovery
+priv_esc_exploit
+replicate
+replicate_with_local_compute
+replicate_with_remote_compute
+replication_initialization
