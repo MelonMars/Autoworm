@@ -49,9 +49,19 @@ Raw Output: {output}"""
     data.setdefault("confidence", 0.0)
     return data
 
+def merge(dst, src):
+    for k, v in src.items():
+        if (
+            k in dst
+            and isinstance(dst[k], dict)
+            and isinstance(v, dict)
+        ):
+            merge(dst[k], v)
+        else:
+            dst[k] = v
+
 def apply_update(host, update):
-    for k, v in update.get("facts", {}).items():
-        host.facts[k] = v
+    merge(host.facts, update.get("facts", {}))
     for edge in update.get("new_edges", []):
         if "from" not in edge or "to" not in edge:
             continue

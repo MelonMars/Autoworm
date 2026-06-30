@@ -2,6 +2,14 @@ from dataclasses import dataclass
 import networkx as nx
 
 @dataclass
+class Hypothesis:
+    id: str
+    description: str
+    evidence: list[str]
+    confidence: float
+    failed_attempts: list[str]
+
+@dataclass
 class Host:
     id: str
     services: dict
@@ -9,14 +17,7 @@ class Host:
     state: str
     os: str | None
     hostname: str | None
-    # confidence: float
-    def render(self):
-        return f"""ID: {self.id}
-State: {self.state}
-Known Services: {self.services}
-Operating System: {self.os}
-Hostname: {self.hostname}
-"""
+    hypotheses: list[Hypothesis]
 
 @dataclass
 class Task:
