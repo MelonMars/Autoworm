@@ -1,6 +1,6 @@
 from llm import request_llm, extract_json
-from memory import Host, Task, G
-from tools.tool import Tool
+from memory import Host
+from tools.base import Tool
 
 NORMALIZE_SYSTEM = """You convert raw security tool output into ONE JSON object.
 Output only the JSON. No prose, no markdown fences. Do not repeat the host information, just analyze the tool output.
@@ -48,27 +48,4 @@ Raw Output: {output}"""
     data.setdefault("new_edges", [])
     data.setdefault("confidence", 0.0)
     return data
-
-def merge(dst, src):
-    for k, v in src.items():
-        if (
-            k in dst
-            and isinstance(dst[k], dict)
-            and isinstance(v, dict)
-        ):
-            merge(dst[k], v)
-        else:
-            dst[k] = v
-
-def apply_update(host, update):
-    merge(host.facts, update.get("facts", {}))
-    for edge in update.get("new_edges", []):
-        if "from" not in edge or "to" not in edge:
-            continue
-        G.add_edge(edge["from"], edge["to"], type=edge.get("type", ""))
-
-if __name__ == "__main__":
-    from tools.nmap import nmap
-    tool = nmap()
-    print(normalize_tool_output(tool, tool.test_run("192.168.1.3")))
 

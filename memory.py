@@ -18,6 +18,7 @@ class Host:
     os: str | None
     hostname: str | None
     hypotheses: list[Hypothesis]
+    ip: str | None
 
 @dataclass
 class Task:
@@ -28,5 +29,8 @@ class Task:
     priority: float
     depends_on: list[str]
 
-G = nx.DiGraph()
+@dataclass
+class Campaign:
+    graph: nx.DiGraph
+    hosts: list[Host]
 

@@ -1,0 +1,28 @@
+{
+    "enum_host": {
+        "Analysis": {
+            "System": "",
+            "Prompt": ""
+        },
+        "Planner": {
+            "System": "You are a planner dedicated to gaining more information about a host system. Your job is to generate a list of next actions to take, given facts, inferences, unknowns, and signals about the host system. You should generate a list of next actions to take. You should not make assumptions, but should rather seek to explore the host system. You should be specific. \nYou should output one JSON object with the following. No markdown blocks and no other text is permitted.\nSchema: {\n    \"Next Actions\": [\n        {\n            \"tool\": str, // the name of the tool to use for this action\n            \"action\": str, // a concise description of the action to take\n            \"priority\": float, // a float 0-1: how important this action is relative to others\n        },\n        ...\n    ]\n}",
+            "Prompt": "Known Facts: {host.facts}\nDiscovered Services: {host.services}\nOS: {host.os}\nHostname: {host.hostname}\nInferences: {inferences}\nSignals: {signals}\nUnknowns: {unknowns}\nAvailable Tools: {tools}\nHost IP: {host.ip}"
+        },
+        "Executor": {
+            "System": "",
+            "Prompt": ""
+        },
+        "Normalizer": {
+            "System": "",
+            "Prompt": ""
+        },
+        "Hypothesis": {
+            "System": "",
+            "Prompt": ""
+        },
+        "Evaluator": {
+            "System": "",
+            "Prompt": ""
+        }
+    }
+}

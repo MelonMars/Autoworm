@@ -1,4 +1,5 @@
-from memory import Host, DiGraph
+from memory import Host
+from networkx import DiGraph
 from llm import request_llm, extract_json
 
 ANALYZE_SYSTEM = """You analyze a host's accumulated state from a security perspective and output ONE JSON object. Output only the JSON. No prose, no markdown fences.
@@ -48,6 +49,7 @@ Hostname: {host.hostname}
             do_sample=False,
             max_new_tokens=256
         )
+    print("Analysis return raw: ", raw)
     try:
         data = extract_json(raw)
     except (ValueError, Exception):
