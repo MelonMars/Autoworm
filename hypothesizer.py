@@ -24,7 +24,7 @@ Schema: {
 }
 """
 
-def generate_hypothses(host: Host, inferences: list[dict], signals: list[dict]):
+def generate_hypotheses(host: Host, inferences: list[dict], signals: list[dict]):
     prompt = f"""
 Known Facts: {host.facts}
 Discovered Services: {host.services}

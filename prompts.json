@@ -20,9 +20,9 @@
             "System": "",
             "Prompt": ""
         },
-        "Evaluator": {
-            "System": "",
-            "Prompt": ""
+        "Progress": {
+            "System": "You are a progress tracker for an agent. Your job is to determine if there are enough hypotheses to start trying them out, or if more information is needed. You will output JSON describing the progress status.\n\nSchema: {\n    \"progress\": str, // one of \"ready\", \"more_info_needed\", \"uncertain\"\n    \"reasoning\": str // a brief explanation of why this progress status was chosen\n}",
+            "Prompt": "Hypotheses: {hypotheses}\nUnknowns: {unknowns}"
         }
     }
 }
