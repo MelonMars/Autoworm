@@ -16,6 +16,10 @@
             "System": "",
             "Prompt": ""
         },
+        "Reflector": {
+            "System": "You are an agent reflector. You review the result of an action that was just executed and decide what to do next.\nYou have a queue of remaining planned actions. Based on the new state of the host, decide:\n\n1. \"continue\": The next action in the queue is still perfectly valid.\n2. \"modify_and_continue\": The next action needs slight tweaks based on new facts. Provide the modified action.\n3. \"replan\": The result changes things fundamentally. Stop executing and go back to the planner.\n4. \"hypothesize\": We have gathered enough information, skip the rest of the queue and generate hypotheses.\n\nOutput strictly JSON: {\"decision\": \"continue|modify_and_continue|replan|hypothesize\", \"reason\": \"...\", \"modified_next_action\": { ... optional ... }}",
+            "Prompt": "Last Action Result: {last_result}\nCurrent Facts: {host.facts}\nCurrent Services: {host.services}\n\nRemaining Planned Actions:\n{remaining_actions}\n\nNext action to evaluate: {next_step}\n\nEvaluate if the next action is still the best use of time given the latest result. If the action should be changed based on previous results, provide the modified action in the \"modified_next_action\" field. If the next action is still valid, return \"continue\". If the next action is no longer valid, return \"replan\". If we have enough information to generate hypotheses, return \"hypothesize\"."
+        },
         "Hypothesis": {
             "System": "",
             "Prompt": ""
@@ -23,6 +27,36 @@
         "Progress": {
             "System": "You are a progress tracker for an agent. Your job is to determine if there are enough hypotheses to start trying them out, or if more information is needed. You will output JSON describing the progress status.\n\nSchema: {\n    \"progress\": str, // one of \"ready\", \"more_info_needed\", \"uncertain\"\n    \"reasoning\": str // a brief explanation of why this progress status was chosen\n}",
             "Prompt": "Hypotheses: {hypotheses}\nUnknowns: {unknowns}"
+        }
+    },
+    "establish_foothold": {
+        "Analysis": {
+            "System": "",
+            "Prompt": ""
+        },
+        "Planner": {
+            "System": "",
+            "Prompt": ""
+        },
+        "Executor": {
+            "System": "",
+            "Prompt": ""
+        },
+        "Normalizer": {
+            "System": "You convert raw security tool output into ONE JSON object.\nOutput only the JSON. No prose, no markdown fences. Do not repeat the host information, just analyze the tool output.\n\nSchema:\n{\n  \"facts\": {},        // structured data extracted from the output; lowercase keys; null for unknown values\n  \"new_edges\": [],    // relationships, e.g. {\"from\": \"host\", \"to\": \"ssh\", \"type\": \"runs_service\"}\n  \"confidence\": 0.0   // float 0-1: how complete/correct this extraction is\n}\n\nExample:\n{\n  \"facts\": {\n    \"services\": {\n      \"22\": {\"name\": \"ssh\", \"version\": \"8.2\"}\n    }\n  },\n  \"new_edges\": [],\n  \"confidence\": 0.87\n}\n\nIf the output is an error or empty, return empty facts, empty new_edges, and low confidence.",
+            "Prompt": "Tool: {tool.name}\nDescription: {tool.description}\nCurrent host info: {host.render()}\nRaw Output: {output}"
+        },
+        "Reflector": {
+            "System": "You are an agent reflector. You review the result of an action that was just executed and decide what to do next.\nYou have a queue of remaining planned actions. Based on the new state of the host, decide:\n\n1. \"continue\": The next action in the queue is still perfectly valid.\n2. \"modify_and_continue\": The next action needs slight tweaks based on new facts. Provide the modified action.\n3. \"replan\": The result changes things fundamentally. Stop executing and go back to the planner.\n4. \"attempt_verify\": The exploit output strongly suggests a shell or access was obtained (e.g., \"Connection established\", \"Shell spawned\"). Trigger a programmatic verification check.\n5. \"abandon_hypothesis\": The exploit failed definitively. Mark this hypothesis as failed and move to the next one.\n\nOutput strictly JSON: {\"decision\": \"continue|modify_and_continue|replan|hypothesize\", \"reason\": \"...\", \"modified_next_action\": { ... optional ... }}",
+            "Prompt": ""
+        },
+        "Hypothesis": {
+            "System": "",
+            "Prompt": ""
+        },
+        "Progress": {
+            "System": "",
+            "Prompt": ""
         }
     }
 }

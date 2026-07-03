@@ -19,6 +19,8 @@ class Host:
     hostname: str | None
     hypotheses: list[Hypothesis]
     ip: str | None
+    foothold: bool
+    vulnerabilities: dict
 
 @dataclass
 class Task:

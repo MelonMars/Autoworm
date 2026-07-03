@@ -36,6 +36,7 @@ class Tool:
     description: str
     params: list[Param]
     build_command: Callable[[dict], list[str]]   # validated args -> argv
+    category: str = "recon"                       # "recon", "search", "foothold"
 
     def input_schema(self) -> dict:
         props, required = {}, []

@@ -6,6 +6,7 @@ from hypothesizer import generate_hypotheses
 from progress import assess_progress
 from memory import Campaign, Host
 from reflector import evaluate_action_progress
+from verify_foothold import verify_foothold
 import tools
 from tools.registry import REGISTRY
 import networkx as nx
@@ -18,7 +19,9 @@ test_host = Host(
     os=None,
     hostname=None,
     hypotheses=[],
-    ip = "127.1.2.3"
+    ip = "127.1.2.3",
+    foothold=False,
+    vulnerabilities={},
 )
 
 # Define memory
@@ -47,6 +50,8 @@ def apply_update(host, update):
         if "from" not in edge or "to" not in edge:
             continue
         campaign.graph.add_edge(edge["from"], edge["to"], type=edge.get("type", ""))
+    if "vulnerabilities" in update:
+        merge(host.vulnerabilities, update["vulnerabilities"])
 
 # Get basic facts of the host
 for host in campaign.hosts:
@@ -70,12 +75,12 @@ for host in campaign.hosts:
             execution_info, raw = execute_action(step["action"], tool, host)
             
             if execution_info["ok"]:
-                normalized_result = normalize_tool_output(tool, execution_info["result"], host)
+                normalized_result = normalize_tool_output(tool, execution_info["result"], host, phase)
                 apply_update(host, normalized_result)
             else:
                 normalized_result = {"error": execution_info.get("error", "unknown failure")}
 
-            reflection = evaluate_action_progress(host, normalized_result, actions_queue)
+            reflection = evaluate_action_progress(host, normalized_result, actions_queue, phase)
             print(f"Reflector Decision: {reflection['decision']} - {reflection['reason']}")
 
             if reflection["decision"] == "replan":
@@ -96,21 +101,79 @@ for host in campaign.hosts:
             new_hypotheses = generate_hypotheses(host, normalized_result)
             host.hypotheses.extend(new_hypotheses.hypotheses)
         progress = assess_progress(host.hypotheses, analysis_result["unknowns"], None, phase)
+
     phase = "establish_foothold"
     progress = {"progress": "not_established"}
+    
     while progress["progress"] != "established":
+        analysis_result = analyze(host, campaign.graph)
         hypotheses = [h for h in host.hypotheses if h.confidence > 0.7 and not h.failed_attempts]
+        
+        if not hypotheses:
+            break
+
         for hypothesis in hypotheses:
             plan = plan_next_actions(host, analysis_result["inferences"], analysis_result["signals"],
                                     analysis_result["unknowns"], hypothesis, list(REGISTRY), phase)
-            print("Got plan:", plan)
-            step = plan["Next Actions"][0]
-            tool = REGISTRY[step["tool"]]
 
-            execution_info, raw = execute_action(step["action"], tool, host)
-            if not execution_info["ok"]:
-                print("Execution failed:", execution_info["error"])
-                hypothesis.failed_attempts.append(execution_info["error"])
-                continue
-            normalized_result = normalize_tool_output(tool, execution_info["result"], host)
-            progress = assess_progress(host.hypotheses, analysis_result["unknowns"], normalized_result, phase)
+            action_queue = list(plan.get("Next Actions", []))
+            hypothesis_failed = False
+            
+            while action_queue:
+                step = action_queue.pop(0)
+                tool = REGISTRY[step["tool"]]
+
+                execution_info, raw = execute_action(step["action"], tool, host)
+                
+                if execution_info["ok"]:
+                    normalized_result = normalize_tool_output(tool, execution_info["result"], host, phase)
+                    apply_update(host, normalized_result)
+                else:
+                    normalized_result = {"error": execution_info.get("error", "unknown failure")}
+                
+                claims = normalized_result.get("foothold_claims", [])
+
+                if claims:
+                    foothold_verified = False
+                    for claim in claims:
+                        host.foothold = claim 
+                        
+                        if verify_foothold(host):
+                            progress = {"progress": "established"}
+                            foothold_verified = True
+                            break
+                        else:
+                            print(f"[-] Claim ({claim['type']}) failed verification.")
+                    
+                    if foothold_verified:
+                        break
+                    else:
+                        host.foothold = None
+                        reflection = {"decision": "replan", "reason": "Exploit output claimed access, but verification failed (false positive)."} 
+                else:
+                    # No claims found, use the standard reflector to decide what to do next
+                    reflection = evaluate_action_progress(host, normalized_result, action_queue)
+                if reflection["decision"] == "replan":
+                    break
+                elif reflection["decision"] == "attempt_verify":
+                    if verify_foothold(host):
+                        progress = {"progress": "established"}
+                        break
+                    else:
+                        hypothesis_failed = True
+                        break
+                        
+                elif reflection["decision"] == "abandon_hypothesis":
+                    hypothesis.failed_attempts = True
+                    hypothesis_failed = True
+                    break
+                    
+                elif reflection["decision"] == "modify_and_continue":
+                    if "modified_next_action" in reflection and action_queue:
+                        action_queue[0] = reflection["modified_next_action"]
+                elif reflection["decision"] == "continue":
+                    pass
+            
+            if progress["progress"] == "established":
+                break
+
