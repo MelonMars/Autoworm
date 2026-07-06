@@ -18,7 +18,7 @@
         },
         "Reflector": {
             "System": "You are an agent reflector. You review the result of an action that was just executed and decide what to do next.\nYou have a queue of remaining planned actions. Based on the new state of the host, decide:\n\n1. \"continue\": The next action in the queue is still perfectly valid.\n2. \"modify_and_continue\": The next action needs slight tweaks based on new facts. Provide the modified action.\n3. \"replan\": The result changes things fundamentally. Stop executing and go back to the planner.\n4. \"hypothesize\": We have gathered enough information, skip the rest of the queue and generate hypotheses.\n\nOutput strictly JSON: {\"decision\": \"continue|modify_and_continue|replan|hypothesize\", \"reason\": \"...\", \"modified_next_action\": { ... optional ... }}",
-            "Prompt": "Last Action Result: {last_result}\nCurrent Facts: {host.facts}\nCurrent Services: {host.services}\n\nRemaining Planned Actions:\n{remaining_actions}\n\nNext action to evaluate: {next_step}\n\nEvaluate if the next action is still the best use of time given the latest result. If the action should be changed based on previous results, provide the modified action in the \"modified_next_action\" field. If the next action is still valid, return \"continue\". If the next action is no longer valid, return \"replan\". If we have enough information to generate hypotheses, return \"hypothesize\"."
+            "Prompt": "Last Action Result: {}\nCurrent Facts: {}\nCurrent Services: {}\n\nRemaining Planned Actions:\n{}\n\nNext action to evaluate: {}\n\nEvaluate if the next action is still the best use of time given the latest result. If the action should be changed based on previous results, provide the modified action in the \"modified_next_action\" field. If the next action is still valid, return \"continue\". If the next action is no longer valid, return \"replan\". If we have enough information to generate hypotheses, return \"hypothesize\"."
         },
         "Hypothesis": {
             "System": "",
@@ -57,6 +57,36 @@
         "Progress": {
             "System": "",
             "Prompt": ""
+        }
+    },
+    "objective": {
+        "Analysis": {
+            "System": "",
+            "Prompt": ""
+        },
+        "Planner": {
+            "System": "You are a planner for the post-exploitation phase of an AUTHORIZED CTF engagement. A verified foothold already exists on the host. Your job is to plan shell commands that achieve the stated objective using the provided exec tool.\n\nThink like an experienced CTF player. Be concrete and efficient. Each action MUST contain the exact shell command to run.\n\nCommon places to look for a flag named like CTF_XXXX inside a file named flag.txt:\n- /flag.txt, /root/flag.txt, /home/*/flag.txt\n- web roots: /var/www/html/flag.txt, /var/www/flag.txt, /srv/www/flag.txt\n- /tmp/, /opt/, common CTF directories\n- environment variables (env, printenv), crontabs, and process listings (ps aux)\n\nUseful commands: cat <path>, find / -name flag.txt 2>/dev/null, grep -rI 'CTF_' / 2>/dev/null, ls -la, env, ps aux, id, uname -a.\n\nYou should output one JSON object with the following. No markdown blocks and no other text is permitted.\nSchema: {\n    \"Next Actions\": [\n        {\n            \"tool\": str,        // must equal the provided exec tool name\n            \"action\": str,      // the EXACT shell command to run on the target\n            \"priority\": float   // 0-1\n        },\n        ...\n    ]\n}",
+            "Prompt": "Objective: {objective.description}\n\nKnown Facts: {host.facts}\nDiscovered Services: {host.services}\nOS: {host.os}\nHostname: {host.hostname}\nHost IP: {host.ip}\nFoothold: {host.foothold}\n\nExec Tool Available: {tools}\n\nPlan the next shell command(s) to make progress toward the objective. Prefer one high-value command first."
+        },
+        "Executor": {
+            "System": "",
+            "Prompt": ""
+        },
+        "Normalizer": {
+            "System": "",
+            "Prompt": ""
+        },
+        "Reflector": {
+            "System": "You are an agent reflector for the post-exploitation phase of an AUTHORIZED CTF engagement. A foothold exists and the agent is running shell commands to achieve an objective (e.g. find a flag).\n\nReview the result of the last command and decide what to do next given the remaining queue.\n\n1. \"continue\": The next queued command is still the best next step.\n2. \"modify_and_continue\": The next command needs adjustment based on what we just learned. Provide the modified action.\n3. \"replan\": We're on the wrong track; go back to the planner with the new facts.\n4. \"hypothesize\": We have enough to stop and declare the objective complete or stuck.\n\nOutput strictly JSON: {\"decision\": \"continue|modify_and_continue|replan|hypothesize\", \"reason\": \"...\", \"modified_next_action\": { ... optional ... }}",
+            "Prompt": "Last Command Result: {}\nCurrent Facts: {}\nCurrent Services: {}\n\nRemaining Planned Actions:\n{}\n\nNext action to evaluate: {}\n\nEvaluate whether the next queued command is still the best use of time given the latest output. Adjust it if needed."
+        },
+        "Hypothesis": {
+            "System": "",
+            "Prompt": ""
+        },
+        "Progress": {
+            "System": "You are a progress tracker for the post-exploitation objective phase of an AUTHORIZED CTF engagement.\n\nDecide whether the objective has been achieved based on the latest command outputs and hypotheses.\n\nSchema: {\n    \"progress\": str,      // one of \"complete\", \"more_info_needed\", \"stuck\"\n    \"reasoning\": str\n}",
+            "Prompt": "Objective: {objective.description}\nHypotheses: {hypotheses}\nUnknowns: {unknowns}\nLast Result: {term_result}"
         }
     }
 }

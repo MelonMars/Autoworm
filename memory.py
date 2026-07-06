@@ -19,8 +19,15 @@ class Host:
     hostname: str | None
     hypotheses: list[Hypothesis]
     ip: str | None
-    foothold: bool
+    foothold: dict | None
     vulnerabilities: dict
+    source_host: str | None = None
+
+    def render(self) -> str:
+        return (f"host={self.id} ip={self.ip} os={self.os} hostname={self.hostname} "
+                f"state={self.state} foothold={self.foothold} "
+                f"services={self.services} facts={self.facts}")
+
 
 @dataclass
 class Task:

