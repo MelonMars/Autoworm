@@ -1,9 +1,6 @@
 from llm import request_llm, extract_json
 import json
 def evaluate_action_progress(host, last_result, remaining_actions, phase):
-    if not remaining_actions:
-        return {"decision": "hypothesize", "reason": "Queue empty"}
-    
     prompts = json.load(open("prompts.json"))
     next_step = remaining_actions[0]
     

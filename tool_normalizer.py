@@ -22,28 +22,33 @@ Example:
       "22": {"name": "ssh", "version": "8.2"}
     }
   },
-  "new_edges": [],
+  "new_edges": [
+    {"from": "host", "to": "ssh", "type": "runs_service"}
+  ],
   "confidence": 0.87
 }
 
-If the output is an error or empty, return empty facts, empty new_edges, and low confidence."""
+Make sure new_edges is not inside of facts.
+
+If the output is an error or empty, return empty facts, empty new_edges, and low confidence. The allowable keys for facts are services, vulnerabilities, os, hostname, and any other relevant information. The values should be structured as dictionaries or lists as appropriate."""
 
 def normalize_tool_output_search(tool: Tool, output: str, host: Host):
     prompt = f"""
-Tool: {tool.name}\n"
-Description: {tool.description}\n\n"
-Current host info: {host.render()}\n\n"
+Tool: {tool.name}
+Description: {tool.description}
+Current host info: {host.render()}
 Raw Output: {output}"""
+    print("Normalizing tool output with prompt:", prompt)
     raw = request_llm(
             prompt,
             system=NORMALIZE_SYSTEM_SEARCH,
             enable_thinking=False,
             do_sample=False,
-            max_new_tokens=256
+            max_new_tokens=1024
         )
     try:
         data = extract_json(raw)
-    except (ValueError, Exception):
+    except (ValueError, json.JSONDecodeError):
         return {"facts": {}, "new_edges": [], "confidence": 0.0, "_raw": raw}
 
     data.setdefault("facts", {})

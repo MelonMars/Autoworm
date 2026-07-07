@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 import os
 
@@ -37,6 +37,7 @@ class Tool:
     params: list[Param]
     build_command: Callable[[dict], list[str]]   # validated args -> argv
     category: str = "recon"                       # "recon", "search", "foothold"
+    examples: list[str] = field(default_factory=list)
 
     def input_schema(self) -> dict:
         props, required = {}, []
@@ -71,3 +72,24 @@ class Tool:
                 return "root"
         return "user"
     
+def render_tool(tool: Tool) -> str:
+    header = f"## {tool.name}  [{tool.category}]"
+    body = tool.description.strip()
+    params = tool.params_doc() or "(no parameters)"
+    
+    output = f"{header}\n{body}\n\nParameters:\n{params}"
+    
+    if tool.examples:
+        ex_text = "\n".join(f"- `{ex}`" for ex in tool.examples)
+        output += f"\n\nExamples:\n{ex_text}"
+        
+    return output
+
+def render_tools(registry: dict[str, Tool], category: str | None = None) -> str:
+    def keep(t: Tool) -> bool:
+        return category is None or not t.category or t.category == category
+    tools = sorted(
+        (t for t in registry.values() if keep(t)),
+        key=lambda t: (t.category, t.name),
+    )
+    return "\n\n".join(render_tool(t) for t in tools)

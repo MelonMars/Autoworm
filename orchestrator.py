@@ -8,6 +8,7 @@ from memory import Campaign, Host
 from reflector import evaluate_action_progress
 from verify_foothold import verify_foothold
 import tools
+from tools.base import render_tools
 from tools.registry import REGISTRY
 import networkx as nx
 
@@ -32,7 +33,7 @@ test_host = Host(
     os=None,
     hostname=None,
     hypotheses=[],
-    ip = "127.1.2.3",
+    ip = "192.168.64.2",
     foothold=False,
     vulnerabilities={},
 )
@@ -134,7 +135,7 @@ for host in campaign.hosts:
 
         plan = plan_next_actions(host, analysis_result["inferences"],
                                 analysis_result["signals"], None, None,
-                                [t for t in REGISTRY.values() if t.category == "recon"], phase)
+                                render_tools(REGISTRY, "recon"), phase)
         print("Got plan:", plan)
 
         actions_queue = list(plan.get("Next Actions", []))
@@ -144,11 +145,14 @@ for host in campaign.hosts:
             step = actions_queue.pop(0)
             tool = REGISTRY[step["tool"]]
 
+            print("Executing: ", step["action"])
             execution_info, raw = execute_action(step["action"], tool, host)
-            
+            print("Execution info:", execution_info)
+
             if execution_info["ok"]:
                 normalized_result = normalize_tool_output(tool, execution_info["result"], host, phase)
                 apply_update(host, normalized_result)
+                print("Normalized result:", normalized_result)
             else:
                 normalized_result = {"error": execution_info.get("error", "unknown failure")}
 
@@ -157,6 +161,14 @@ for host in campaign.hosts:
 
             if reflection["decision"] == "replan":
                 break
+
+            elif reflection["decision"] == "retry_previous":
+                if execution_info["ok"]:
+                    retried = reflection.get("modified_previous_action", step)
+                    print(f"Re-queuing previous action: {retried['action']}")
+                    actions_queue.insert(0, retried)
+                else:
+                    print("Skipping retry: previous action errored out")
                 
             elif reflection["decision"] == "hypothesize":
                 break
@@ -170,7 +182,8 @@ for host in campaign.hosts:
                 pass
 
         if normalized_result:
-            new_hypotheses = generate_hypotheses(host, normalized_result)
+            analysis_result = analyze(host, campaign.graph)
+            new_hypotheses = generate_hypotheses(host, analysis_result["inferences"], analysis_result["signals"])
             host.hypotheses.extend(new_hypotheses.hypotheses)
         progress = assess_progress(host.hypotheses, analysis_result["unknowns"], None, phase)
 
@@ -186,7 +199,7 @@ for host in campaign.hosts:
 
         for hypothesis in hypotheses:
             plan = plan_next_actions(host, analysis_result["inferences"], analysis_result["signals"],
-                                    analysis_result["unknowns"], hypothesis, [t for t in REGISTRY.values() if t.category == "foothold"], phase)
+                                    analysis_result["unknowns"], hypothesis, render_tools(REGISTRY, "foothold"), phase)
 
             action_queue = list(plan.get("Next Actions", []))
             hypothesis_failed = False

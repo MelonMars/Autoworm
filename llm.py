@@ -2,7 +2,7 @@ from functools import lru_cache
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import json
 
-MODEL_ID = "Qwen/Qwen3-4B"
+MODEL_ID = "Qwen/Qwen3.5-2B"
 
 @lru_cache(maxsize=1)
 def _get_model():

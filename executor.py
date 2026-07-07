@@ -49,13 +49,16 @@ OS: {host.os}
 Hostname: {host.hostname}
 Host IP: {host.ip}
 """
+
+        print("Executing with prompt:", prompt)
         if attempts:
-            prompt += "\nPrevious attempts failed. Fix the arguments:\n"
+            prompt += "\nPrevious attempts (from you) failed. Fix the arguments (or remove optional arguments):\n"
             for a in attempts:
                 prompt += f"- args {a['args']} -> {a['error']}\n"
 
         raw = request_llm(prompt, system=EXECUTOR_SYSTEM,
-                          enable_thinking=False, do_sample=False, max_new_tokens=512)
+                          enable_thinking=True, do_sample=False, max_new_tokens=512)
+        print("Tool execution returned:", raw)
         try:
             parsed = extract_json(raw)
         except Exception:
