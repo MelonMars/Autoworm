@@ -18,9 +18,10 @@ Schema:
 Example:
 {
   "facts": {
-    "services": {
+
+  },
+  "services": {
       "22": {"name": "ssh", "version": "8.2"}
-    }
   },
   "new_edges": [
     {"from": "host", "to": "ssh", "type": "runs_service"}
@@ -49,11 +50,12 @@ Raw Output: {output}"""
     try:
         data = extract_json(raw)
     except (ValueError, json.JSONDecodeError):
-        return {"facts": {}, "new_edges": [], "confidence": 0.0, "_raw": raw}
+        return {"facts": {}, "new_edges": [], "confidence": 0.0, "services": {}, "_raw": raw}
 
     data.setdefault("facts", {})
     data.setdefault("new_edges", [])
     data.setdefault("confidence", 0.0)
+    data.setdefault("services", {})
     return data
 
 NORMALIZE_SYSTEM_FOOTHOLD = """You convert raw exploit tool output into ONE JSON object.

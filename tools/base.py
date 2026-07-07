@@ -85,9 +85,11 @@ def render_tool(tool: Tool) -> str:
         
     return output
 
+GLOBAL_CATEGORIES = {"search"}
+
 def render_tools(registry: dict[str, Tool], category: str | None = None) -> str:
     def keep(t: Tool) -> bool:
-        return category is None or not t.category or t.category == category
+        return category is None or not t.category or t.category == category or (category in GLOBAL_CATEGORIES and t.category in GLOBAL_CATEGORIES)
     tools = sorted(
         (t for t in registry.values() if keep(t)),
         key=lambda t: (t.category, t.name),

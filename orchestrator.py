@@ -63,6 +63,7 @@ def merge(dst, src):
 
 def apply_update(host, update):
     merge(host.facts, update.get("facts", {}))
+    merge(host.services, update.get("services", {}))
     for edge in update.get("new_edges", []):
         if "from" not in edge or "to" not in edge:
             continue
@@ -181,10 +182,9 @@ for host in campaign.hosts:
             elif reflection["decision"] == "continue":
                 pass
 
-        if normalized_result:
-            analysis_result = analyze(host, campaign.graph)
-            new_hypotheses = generate_hypotheses(host, analysis_result["inferences"], analysis_result["signals"])
-            host.hypotheses.extend(new_hypotheses.hypotheses)
+        analysis_result = analyze(host, campaign.graph)
+        new_hypotheses = generate_hypotheses(host, analysis_result["inferences"], analysis_result["signals"])
+        host.hypotheses.extend(new_hypotheses.hypotheses)
         progress = assess_progress(host.hypotheses, analysis_result["unknowns"], None, phase)
 
     phase = "establish_foothold"
