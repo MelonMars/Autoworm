@@ -76,7 +76,11 @@ Host IP: {host.ip}
             return {"ok": False, "error": "insufficient_privilege",
                     "need": need, "have": current_privilege(), "args": args}, raw
 
-        result = run(tool.build_command(args))
+        if tool.execute_fn is not None:
+            result = tool.execute_fn(args)
+        else:
+            result = run(tool.build_command(args))
+
         if result.get("code") == 0:
             return {"ok": True, "args": args, "rationale": parsed.get("rationale"),
                     "result": result, "attempts": attempt + 1}, raw

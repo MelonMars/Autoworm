@@ -30,13 +30,17 @@ class Param:
     def enum_values(self) -> list[str] | None:
         return list(self.choices()) or None
 
+def _no_op_command(_args: dict) -> list[str]:
+    return []
+
 @dataclass
 class Tool:
     name: str
     description: str
     params: list[Param]
-    build_command: Callable[[dict], list[str]]   # validated args -> argv
-    category: str = "recon"                       # "recon", "search", "foothold"
+    build_command: Callable[[dict], list[str]] = _no_op_command  # validated args -> argv; unused when execute_fn is set
+    execute_fn: Callable[[dict], dict] | None = None             # alternative to build_command; returns {"cmd", "code", "stdout", "stderr"}
+    category: str = "recon"                                     # "recon", "search", "foothold"
     examples: list[str] = field(default_factory=list)
 
     def input_schema(self) -> dict:
@@ -68,7 +72,7 @@ class Tool:
     def required_privilege(self, args: dict) -> str:
         for p in self.params:
             val = args.get(p.name)
-            if val is not None and p.choices().get(val) == "root":
+            if val is not None and not isinstance(val, dict) and p.choices().get(val) == "root":
                 return "root"
         return "user"
     

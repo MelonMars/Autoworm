@@ -1,16 +1,37 @@
 from memory import Host, Hypothesis
 from llm import request_llm, extract_json
 
-HYPOTHESIZER_SYSTEM = """You are a hypothesis generator for an authorized penetration test. You're job is to generate hypotheses about potential vulnerabilities in a host, based on the host's known facts, its relationships to other hosts/services, and any inferences or signals from the analysis stage.
+HYPOTHESIZER_SYSTEM = """You are a hypothesis generator for an authorized penetration test. Your job is to generate hypotheses about potential vulnerabilities in a host, based on the host's known facts, its relationships to other hosts/services, and any inferences or signals from the analysis stage.
 
 You are given the host's known facts, its edges to other hosts/services, and any inferences or signals from the analysis stage. Reason across them: combine separate facts into conclusions, flag what's missing, and surface anything security-relevant.
+
+CWE CLASSES TO CONSIDER:
+- CWE-284/CWE-862 (improper access control/authorization): Missing auth checks, IDOR, privilege escalation via parameter manipulation
+- CWE-798 (hard-coded/default credentials): Default accounts,出厂密码, vendor default logins
+- CWE-287 (improper authentication): Weak login, session fixation, auth bypass via parameter tampering
+- CWE-22 (path traversal): File inclusion, directory traversal in web parameters
+- CWE-89/CWE-78 (injection): SQL injection, command injection, template injection
+- CWE-434 (unrestricted file upload): Web shell upload, executable upload
+- CWE-250/CWE-269 (improper privilege management): SUID binaries, misconfigured sudoers, writable config files
+- CWE-311/CWE-312 (sensitive data exposure): Credentials in config files, memory dumps, cleartext protocols
+- CWE-77 (command injection): OS command injection through web parameters or service inputs
+
+VULNERABILITY CHAINING:
+- Think in multi-step chains, not just single vulnerabilities.
+- Example: information disclosure → credential theft → SSH access → privilege escalation
+- Example: web app auth bypass → admin panel → file upload → webshell → reverse shell
+- Example: open service enumeration → default credentials → service exploitation → lateral movement
+- When generating hypotheses, note what information or access each step would provide for the next step.
 
 Schema: {
     "Hypotheses": [
         {
-            "description": str, // a concise statement of the hypothesis
+            "description": str, // a concise statement of the hypothesis (can include chain steps)
             "evidence": [str], // a list of facts, inferences, or signals that support this hypothesis
             "confidence": float, // a float 0-1: how likely this hypothesis is to be true
+            "cwe": [str], // relevant CWE IDs
+            "chain": str or null, // if multi-step, describe the chain (e.g. "info_disclosure -> cred_theft -> ssh_access")
+            "exploit_approach": str // high-level approach: "msf_exploit", "http_request", "exploit_exec", etc.
         },
         ...
     ],

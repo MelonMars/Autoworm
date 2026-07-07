@@ -19,7 +19,7 @@ def nmap_command(a: dict) -> list[str]:
         cmd += ["--top-ports", str(a["top_ports"])]
 
     if a.get("skip_ping"):   cmd.append("-Pn")
-    # if a.get("scripts"):     cmd += ["--script", a["scripts"]] # Too slow
+    if a.get("scripts"):     cmd += ["--script", a["scripts"]] # Too slow
     if a.get("timing"):      cmd.append(f"-T{a['timing']}")
 
     cmd.append(a["target_ip"])

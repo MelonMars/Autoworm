@@ -1,6 +1,8 @@
 from functools import lru_cache
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import json
+from pydantic import BaseModel, Field
+from typing import Optional
 
 MODEL_ID = "Qwen/Qwen3.5-2B"
 
@@ -10,7 +12,7 @@ def _get_model():
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto", device_map="auto")
     return tokenizer, model
 
-def request_llm(prompt, system, max_new_tokens=1024, enable_thinking=True, **gen_kwargs):
+def request_llm(prompt, system, max_new_tokens=1024, enable_thinking=True, schema=None, **gen_kwargs):
     tokenizer, model = _get_model()
     messages = [
         {"role": "system", "content": system},
@@ -24,7 +26,15 @@ def request_llm(prompt, system, max_new_tokens=1024, enable_thinking=True, **gen
         return_dict=True,
     ).to(model.device)
 
-    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, **gen_kwargs)
+    gen = dict(gen_kwargs)
+    if schema is not None:
+            # parser = JsonSchemaParser(schema.model_json_schema())
+            # gen["prefix_allowed_tokens_fn"] = (
+            #     build_transformers_prefix_allowed_tokens_fn(tokenizer, parser)
+            # )
+        pass
+    
+    outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, **gen)
     new_tokens = outputs[0][inputs["input_ids"].shape[-1]:]
 
     close_id = tokenizer.convert_tokens_to_ids("</think>")
