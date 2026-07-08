@@ -40,7 +40,7 @@ class Tool:
     params: list[Param]
     build_command: Callable[[dict], list[str]] = _no_op_command  # validated args -> argv; unused when execute_fn is set
     execute_fn: Callable[[dict], dict] | None = None             # alternative to build_command; returns {"cmd", "code", "stdout", "stderr"}
-    category: str = "recon"                                     # "recon", "search", "foothold"
+    category: list[str] = field(default_factory=lambda: ["recon"])  # "recon", "search", "foothold"
     examples: list[str] = field(default_factory=list)
 
     def input_schema(self) -> dict:

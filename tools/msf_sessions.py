@@ -184,7 +184,7 @@ msf_sessions = register(Tool(
               required=False),
     ],
     execute_fn=_msf_sessions_execute,
-    category="recon",
+    category=["foothold"],
     examples=[
         'List all active Metasploit sessions',
         'Write "whoami" to session 1 and read output',

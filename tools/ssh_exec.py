@@ -23,5 +23,5 @@ ssh_exec = register(Tool(
         Param("command", "string", "Command to execute on the remote host."),
     ],
     build_command=ssh_exec_cmd,
-    category="foothold",
+    category=["foothold"],
 ))

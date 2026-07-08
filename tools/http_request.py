@@ -5,17 +5,21 @@ import json
 import httpx
 
 
-def _parse_headers(headers_str: str) -> dict:
-    if not headers_str:
+def _parse_headers(headers: str) -> dict:
+    print("Parsing headers:", headers)
+    if not headers:
         return {}
+    if isinstance(headers, dict):
+        return headers
+    headers = str(headers)
     try:
-        parsed = json.loads(headers_str)
+        parsed = json.loads(headers)
         if isinstance(parsed, dict):
             return parsed
     except (json.JSONDecodeError, TypeError):
         pass
     headers = {}
-    for line in headers_str.strip().splitlines():
+    for line in headers.strip().splitlines():
         if ":" in line:
             key, val = line.split(":", 1)
             headers[key.strip()] = val.strip()

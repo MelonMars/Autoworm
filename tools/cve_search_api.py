@@ -16,5 +16,5 @@ cve_search_api = register(Tool(
         Param("cve_id", "string", "CVE ID to look up (e.g. CVE-2021-44228)."),
     ],
     build_command=cve_search_cmd,
-    category="search",
+    category=["search"],
 ))

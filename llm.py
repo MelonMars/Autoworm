@@ -3,13 +3,24 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import json
 from pydantic import BaseModel, Field
 from typing import Optional
+import torch
+from transformers import BitsAndBytesConfig
 
-MODEL_ID = "Qwen/Qwen3.5-2B"
+hf_token = "" # Only for downloading the model from HF hub. Ideally, we would just ship the model w/ the entire thing, and not require a token, but for bootstrapping it, the token is the only way to download it in a reasonable (<2h) timeframe.
+MODEL_ID = "Qwen/Qwen3-8B"
+LOCAL_DIR = "./Qwen3-8B"
 
 @lru_cache(maxsize=1)
 def _get_model():
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype="auto", device_map="auto")
+    tokenizer = AutoTokenizer.from_pretrained(LOCAL_DIR)
+    model = AutoModelForCausalLM.from_pretrained(
+        LOCAL_DIR,
+        device_map="auto",
+        quantization_config=BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+        ),
+    )
     return tokenizer, model
 
 def request_llm(prompt, system, max_new_tokens=1024, enable_thinking=True, schema=None, **gen_kwargs):
@@ -20,6 +31,7 @@ def request_llm(prompt, system, max_new_tokens=1024, enable_thinking=True, schem
     ]
     inputs = tokenizer.apply_chat_template(
         messages,
+
         add_generation_prompt=True,
         enable_thinking=enable_thinking,
         return_tensors="pt",

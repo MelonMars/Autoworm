@@ -57,7 +57,7 @@ web_search = register(Tool(
               required=False),
     ],
     execute_fn=_web_search_execute,
-    category="search",
+    category=["search"],
     examples=[
         'Search for "Apache Tomcat 9.0.30 default credentials exploit"',
         'Search for "CVE-2021-44228 Log4Shell exploit PoC"',

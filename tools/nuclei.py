@@ -48,4 +48,5 @@ nuclei = register(Tool(
         Param("json_output", "boolean", "Emit JSONL results.", required=False),
     ],
     build_command=nuclei_command,
+    category=["recon"],
 ))

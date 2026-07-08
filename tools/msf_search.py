@@ -73,7 +73,7 @@ msf_search = register(Tool(
               "platform, or keyword."),
     ],
     execute_fn=_msf_search_execute,
-    category="search",
+    category=["search"],
     examples=[
         'Search Metasploit for SMB exploits matching "eternalblue"',
         'Search Metasploit for auxiliary modules matching "ssh"',

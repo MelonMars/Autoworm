@@ -34,5 +34,5 @@ ssh_key_harvest = register(Tool(
         Param("key_path", "string", "Path to the SSH private key file on the local attacker machine."),
     ],
     build_command=ssh_key_harvest_cmd,
-    category="foothold",
+    category=["foothold"],
 ))

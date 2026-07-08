@@ -12,6 +12,7 @@ from tools.base import render_tools
 from tools.registry import REGISTRY
 from tools.msf_sessions import run_session_command, parse_session_output
 import networkx as nx
+import os, pickle
 
 FOOTHOLD_EXEC_MAP = {
     "ssh_key": "ssh_exec",
@@ -36,7 +37,7 @@ test_host = Host(
     os=None,
     hostname=None,
     hypotheses=[],
-    ip = "192.168.64.2",
+    ip = "192.168.1.246",
     foothold=False,
     vulnerabilities={},
 )
@@ -46,6 +47,14 @@ campaign = Campaign(
     graph=nx.DiGraph(),
     hosts=[test_host],
 )
+
+CHECKPOINT_PATH = "campaign_checkpoint.pkl"
+
+def save_checkpoint(state):
+    tmp = CHECKPOINT_PATH + ".tmp"
+    with open(tmp, "wb") as f:
+        pickle.dump(state, f)
+    os.replace(tmp, CHECKPOINT_PATH)
 
 # Discover network
 pass
@@ -154,19 +163,41 @@ def run_hardcoded(host):
         r = exec_fn(c)
         print(f"$ {c}  (exit {r['code']})\n{r['stdout']}{r['stderr']}")
 
-# Get basic facts of the host
+RESUMABLE = True
+
+def checkpoint():
+    if RESUMABLE:
+        save_checkpoint({
+            "host": host, "phase": phase,
+            "progress": progress, "actions_queue": actions_queue,
+        })
+
 for host in campaign.hosts:
-    progress = {"progress": "more_info_needed"}
+    actions_queue = []
+    resumed = False
+    if RESUMABLE and os.path.exists(CHECKPOINT_PATH):
+        with open(CHECKPOINT_PATH, "rb") as f:
+            ckpt = pickle.load(f)
+        host, phase = ckpt["host"], ckpt["phase"]
+        progress, actions_queue = ckpt["progress"], ckpt["actions_queue"]
+        resumed = bool(actions_queue)
+        print(f"Resumed at progress={progress['progress']}, {len(actions_queue)} pending actions")
+    else:
+        progress = {"progress": "more_info_needed"}
+
     while progress["progress"] != "ready":
-        analysis_result = analyze(host, campaign.graph)
-        host.facts.update(analysis_result["facts"])
+        if resumed:
+            resumed = False
+        else:
+            analysis_result = analyze(host, campaign.graph)
+            host.facts.update(analysis_result["facts"])
+            plan = plan_next_actions(host, analysis_result["inferences"],
+                                    analysis_result["signals"], None, None,
+                                    render_tools(REGISTRY, "recon"), phase)
+            print("Got plan:", plan)
+            actions_queue = list(plan.get("Next Actions", []))
+            checkpoint()
 
-        plan = plan_next_actions(host, analysis_result["inferences"],
-                                analysis_result["signals"], None, None,
-                                render_tools(REGISTRY, "recon"), phase)
-        print("Got plan:", plan)
-
-        actions_queue = list(plan.get("Next Actions", []))
         normalized_result = None
 
         while actions_queue:
@@ -174,7 +205,7 @@ for host in campaign.hosts:
             tool = REGISTRY[step["tool"]]
 
             print("Executing: ", step["action"])
-            execution_info, raw = execute_action(step["action"], tool, host)
+            execution_info, raw = execute_action(step["action"], tool, host, search_tools=render_tools(REGISTRY, "search"))
             print("Execution info:", execution_info)
 
             if execution_info["ok"]:
@@ -199,8 +230,7 @@ for host in campaign.hosts:
                     print("Skipping retry: previous action errored out")
                 
             elif reflection["decision"] == "hypothesize":
-                break
-                
+                break 
             elif reflection["decision"] == "modify_and_continue":
                 if "modified_next_action" in reflection and actions_queue:
                     print(f"Modifying next action: {reflection['modified_next_action']}")
@@ -209,17 +239,23 @@ for host in campaign.hosts:
             elif reflection["decision"] == "continue":
                 pass
 
+            checkpoint()
+
         analysis_result = analyze(host, campaign.graph)
         new_hypotheses = generate_hypotheses(host, analysis_result["inferences"], analysis_result["signals"])
-        host.hypotheses.extend(new_hypotheses.hypotheses)
+        print("New hypotheses:", new_hypotheses)
+        host.hypotheses.extend(new_hypotheses["Hypotheses"])
         progress = assess_progress(host.hypotheses, analysis_result["unknowns"], None, phase)
+
+        actions_queue = []
+        checkpoint()
 
     phase = "establish_foothold"
     progress = {"progress": "not_established"}
     
     while progress["progress"] != "established":
         analysis_result = analyze(host, campaign.graph)
-        hypotheses = [h for h in host.hypotheses if h.confidence > 0.7 and not h.failed_attempts]
+        hypotheses = [h for h in host.hypotheses if h["confidence"] > 0.7]
         
         if not hypotheses:
             break
@@ -227,7 +263,7 @@ for host in campaign.hosts:
         for hypothesis in hypotheses:
             plan = plan_next_actions(host, analysis_result["inferences"], analysis_result["signals"],
                                     analysis_result["unknowns"], hypothesis, render_tools(REGISTRY, "foothold"), phase)
-
+            print("Got foothold plan:", plan)
             action_queue = list(plan.get("Next Actions", []))
             hypothesis_failed = False
             
@@ -235,7 +271,7 @@ for host in campaign.hosts:
                 step = action_queue.pop(0)
                 tool = REGISTRY[step["tool"]]
 
-                execution_info, raw = execute_action(step["action"], tool, host)
+                execution_info, raw = execute_action(step["action"], tool, host, search_tools=render_tools(REGISTRY, "search"))
                 
                 if execution_info["ok"]:
                     normalized_result = normalize_tool_output(tool, execution_info["result"], host, phase)

@@ -1,1 +1,8 @@
 .venv/
+__pycache__/
+tools/__pycache__/
+bitsandbytes-0.50.0.dev0-cp312-cp312-win_amd64.whl
+nuclei.exe
+campaign_checkpoint.pkl
+.vscode/
+Qwen3-8B/

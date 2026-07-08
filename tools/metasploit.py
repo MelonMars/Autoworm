@@ -16,7 +16,7 @@ metasploit_legacy = register(Tool(
         Param("commands", "string", "A string of msfconsole commands separated by semicolons."),
     ],
     build_command=msf_command,
-    category="foothold",
+    category=["foothold"],
     examples=[
         "search type:exploit name:eternalblue; exit",
         "use exploit/windows/smb/ms17_010_eternalblue; set RHOSTS 192.168.1.5; set LHOST 192.168.1.10; exploit; exit"

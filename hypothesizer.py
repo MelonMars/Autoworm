@@ -59,7 +59,7 @@ Signals: {signals}
             system=HYPOTHESIZER_SYSTEM,
             enable_thinking=False,
             do_sample=False,
-            max_new_tokens=512
+            max_new_tokens=1024
         )
     try:
         data = extract_json(raw)

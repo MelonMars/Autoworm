@@ -1,6 +1,7 @@
 from llm import request_llm, extract_json
 import subprocess
 from tools.base import current_privilege
+from researcher import run_research
 
 def run(argv: list[str], timeout: int = 300) -> dict:
     try:
@@ -32,7 +33,10 @@ def validate_args(args: dict, tool) -> str | None:
             return f"{p.name}={args[p.name]!r} not in {p.enum_values()}"
     return None
 
-def execute_action(action, tool, host, max_retries=2):
+def execute_action(action, tool, host, search_tools=None, max_retries=2, max_search_steps=5):
+    search_tools = {t.name: t for t in (search_tools or [])}
+    findings = run_research(action, host, search_tools=search_tools, max_steps=max_search_steps) if search_tools else ""
+
     attempts = []
     for attempt in range(max_retries + 1):
         prompt = f"""
@@ -50,14 +54,19 @@ Hostname: {host.hostname}
 Host IP: {host.ip}
 """
 
+        if findings:
+            prompt += f"\nRelevant findings from research:\n{findings}\n"
+            
         print("Executing with prompt:", prompt)
         if attempts:
             prompt += "\nPrevious attempts (from you) failed. Fix the arguments (or remove optional arguments):\n"
             for a in attempts:
                 prompt += f"- args {a['args']} -> {a['error']}\n"
 
+        max_new_tokens = 512
+
         raw = request_llm(prompt, system=EXECUTOR_SYSTEM,
-                          enable_thinking=True, do_sample=False, max_new_tokens=512)
+                          enable_thinking=False, do_sample=False, max_new_tokens=max_new_tokens)
         print("Tool execution returned:", raw)
         try:
             parsed = extract_json(raw)

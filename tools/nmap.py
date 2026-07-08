@@ -39,4 +39,5 @@ nmap = register(Tool(
         Param("timing", "integer", "Timing template 0-5.", required=False),
     ],
     build_command=nmap_command,
+    category=["recon"],
 ))
