@@ -23,6 +23,9 @@ VULNERABILITY CHAINING:
 - Example: open service enumeration → default credentials → service exploitation → lateral movement
 - When generating hypotheses, note what information or access each step would provide for the next step.
 
+Keep in mind there may be more vulnerabilities than just CWEs, such as simple CVEs, misconfigurations, or logic flaws. Your goal is to generate hypotheses that could be tested in the next phase of the penetration test.
+If a hypothesis does not have a corresponding CWE, leave the "cwe" field empty ([]). If a hypothesis is multi-step, describe the chain in the "chain" field.
+
 Schema: {
     "Hypotheses": [
         {
@@ -67,5 +70,7 @@ Signals: {signals}
         return {"Hypotheses": [], "Further Investigation": [], "_raw": raw}
 
     data.setdefault("Hypotheses", [])
+    for hypothesis in data.get("Hypotheses", []):
+        hypothesis.setdefault("failed_attempts", [])
     data.setdefault("Further Investigation", [])
     return data

@@ -2,6 +2,7 @@ from llm import request_llm, extract_json
 import subprocess
 from tools.base import current_privilege
 from researcher import run_research
+from validate_args import validate_args
 
 def run(argv: list[str], timeout: int = 300) -> dict:
     try:
@@ -21,17 +22,6 @@ Schema: {
     "rationale": str    // one sentence on why these arguments
 }
 """
-
-def validate_args(args: dict, tool) -> str | None:
-    names = {p.name for p in tool.params}
-    for extra in set(args) - names:
-        return f"unknown argument {extra!r}"
-    for p in tool.params:
-        if p.required and p.name not in args:
-            return f"missing required {p.name!r}"
-        if p.name in args and p.enum and args[p.name] not in p.enum_values():
-            return f"{p.name}={args[p.name]!r} not in {p.enum_values()}"
-    return None
 
 def execute_action(action, tool, host, search_tools=None, max_retries=2, max_search_steps=5):
     search_tools = {t.name: t for t in (search_tools or [])}

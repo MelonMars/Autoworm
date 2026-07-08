@@ -1,5 +1,5 @@
 from llm import request_llm, extract_json
-from executor import validate_args
+from validate_args import validate_args
 
 SEARCH_SYSTEM = """You are the research phase of an executor agent. Before an action is executed, you may gather information using the available search tools.
 

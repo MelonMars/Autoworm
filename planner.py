@@ -1,10 +1,10 @@
 from llm import request_llm, extract_json
 import json
 
-def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, phase, objective=None):
+def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, phase, prior_failure, objective=None):
     prompts = json.load(open("prompts.json"))
     PLANNER_SYSTEM = prompts[phase]["Planner"]["System"]
-    prompt = prompts[phase]["Planner"]["Prompt"].format(host=host, inferences=inferences, signals=signals, unknowns=unknowns, hypothesis=hypothesis, tools=tools, objective=objective)
+    prompt = prompts[phase]["Planner"]["Prompt"].format(host=host, inferences=inferences, signals=signals, unknowns=unknowns, hypothesis=hypothesis, tools=tools, prior_failure=prior_failure, objective=objective)
     raw = request_llm(
             prompt,
             system=PLANNER_SYSTEM,

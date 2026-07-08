@@ -253,31 +253,58 @@ for host in campaign.hosts:
     phase = "establish_foothold"
     progress = {"progress": "not_established"}
     
+    MAX_OUTER_ITERATIONS = 10
+    MAX_ACTIONS_PER_HYPOTHESIS = 25
+
+    tried_hypothesis_ids = set()
+    outer_iterations = 0
+
     while progress["progress"] != "established":
+        outer_iterations += 1
+        if outer_iterations > MAX_OUTER_ITERATIONS:
+            print("[-] Maximum outer iterations reached; aborting.")
+            break
+
         analysis_result = analyze(host, campaign.graph)
-        hypotheses = [h for h in host.hypotheses if h["confidence"] > 0.7]
+        hypotheses = [h for h in host.hypotheses 
+                      if h["confidence"] > 0.7
+                      and id(h) not in tried_hypothesis_ids
+                      and not h.get("failed_attempts", False)]
         
         if not hypotheses:
+            progress["progress"] = "exhausted"
             break
+
+        foothold_tools = render_tools(REGISTRY, "foothold")
+        search_tools = render_tools(REGISTRY, "search")
 
         for hypothesis in hypotheses:
             plan = plan_next_actions(host, analysis_result["inferences"], analysis_result["signals"],
-                                    analysis_result["unknowns"], hypothesis, render_tools(REGISTRY, "foothold"), phase)
+                                    analysis_result["unknowns"], hypothesis, foothold_tools, phase)
             print("Got foothold plan:", plan)
             action_queue = list(plan.get("Next Actions", []))
             hypothesis_failed = False
             
+            replan_context = None
+            steps_taken = 0
+
             while action_queue:
+                steps_taken += 1
+                if steps_taken > MAX_ACTIONS_PER_HYPOTHESIS:
+                    print("[-] Maximum actions per hypothesis reached; moving to next hypothesis.")
+                    hypothesis_failed = True
+                    break
+
                 step = action_queue.pop(0)
                 tool = REGISTRY[step["tool"]]
 
-                execution_info, raw = execute_action(step["action"], tool, host, search_tools=render_tools(REGISTRY, "search"))
+                execution_info, raw = execute_action(step["action"], tool, host, search_tools=search_tools)
                 
                 if execution_info["ok"]:
                     normalized_result = normalize_tool_output(tool, execution_info["result"], host, phase)
                     apply_update(host, normalized_result)
                 else:
-                    normalized_result = {"error": execution_info.get("error", "unknown failure")}
+                    normalized_result = {"error": execution_info.get("error", "unknown failure"), "stderr": execution_info.get("error", "unknown failure"), "stdout": execution_info.get("error", "unknown failure"), "ok": False}
                 
                 claims = normalized_result.get("foothold_claims", [])
 
@@ -295,31 +322,48 @@ for host in campaign.hosts:
                     
                     if foothold_verified:
                         break
-                    else:
-                        host.foothold = None
-                        reflection = {"decision": "replan", "reason": "Exploit output claimed access, but verification failed (false positive)."} 
+                    
+                    replan_context = {
+                        "decision": "replan",
+                        "reason": "Exploit output claimed access, but verification failed (false positive).",
+                        "failed_claims": claims,
+                    }
+
+                    reflection = replan_context
+
                 else:
                     reflection = evaluate_action_progress(host, normalized_result, action_queue, phase)
-                if reflection["decision"] == "replan":
-                    break
-                elif reflection["decision"] == "attempt_verify":
-                    if verify_foothold(host):
-                        progress = {"progress": "established"}
-                        break
-                    else:
+                
+                decision = reflection.get("decision", "continue")
+                if decision == "replan":
+                    new_plan = plan_next_actions(host, analysis_result["inferences"], analysis_result["signals"],
+                                            analysis_result["unknowns"], hypothesis, foothold_tools, phase, prior_failure=reflection)
+                    new_actions = list(new_plan.get("Next Actions", []))
+                    if not new_actions:
+                        print("[-] Replan yielded no new actions; marking hypothesis as failed.")
                         hypothesis_failed = True
                         break
-                        
-                elif reflection["decision"] == "abandon_hypothesis":
-                    hypothesis.failed_attempts = True
-                    hypothesis_failed = True
-                    break
                     
-                elif reflection["decision"] == "modify_and_continue":
-                    if "modified_next_action" in reflection and action_queue:
-                        action_queue[0] = reflection["modified_next_action"]
-                elif reflection["decision"] == "continue":
+                    action_queue = new_actions
+                    replan_context = None
+                    continue
+                elif decision == "attempt_verify":
+                    if host.foothold is not None and verify_foothold(host):
+                        progress = {"progress": "established"}
+                        foothold_established = True
+                        break
+                elif decision == "continue":
                     pass
+                else:
+                    print("Unhandled reflector decision:", decision)
+            
+            if foothold_established:
+                break
+
+            if not hypothesis_failed:
+                if host.foothold is not None and verify_foothold(host):
+                    progress = {"progress": "established"}
+                    break
             
             if progress["progress"] == "established":
                 break
