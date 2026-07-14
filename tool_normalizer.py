@@ -23,12 +23,61 @@ class NormalizeResult(BaseModel):
     new_edges: list[Edge] = []
     confidence: float = 0.0
 
+def sanitize_normalizer_output(raw_data: dict) -> dict:
+    if not isinstance(raw_data, dict):
+        return raw_data
+
+    facts = raw_data.get("facts", {})
+    if not isinstance(facts, dict):
+        facts = {}
+        raw_data["facts"] = facts
+
+    if "services" in facts and isinstance(facts["services"], dict):
+        top_level_services = raw_data.get("services", {})
+        if not isinstance(top_level_services, dict):
+            top_level_services = {}
+        top_level_services.update(facts.pop("services"))
+        raw_data["services"] = top_level_services
+
+    services = raw_data.get("services", {})
+    if isinstance(services, dict):
+        for key in ["os", "hostname", "ip"]:
+            if key in services:
+                facts[key] = services.pop(key)
+
+    return raw_data
+
+def truncate_raw_output_for_llm(raw_output_str: str, max_length=1500) -> str:
+    if len(raw_output_str) <= max_length:
+        return raw_output_str
+        
+    body_pattern = r'("body"\s*:\s*")(.+?)("(?:\s*[,}]))'
+    match = re.search(body_pattern, raw_output_str, re.DOTALL)
+    
+    if match:
+        full_body = match.group(2)
+        if len(full_body) > 300:
+            truncated_body = full_body[:300] + "... [TRUNCATED_BY_ORCHESTRATOR]"
+            raw_output_str = (raw_output_str[:match.start(2)] + 
+                              truncated_body + 
+                              raw_output_str[match.end(2):])
+            
+    if len(raw_output_str) > max_length:
+        raw_output_str = raw_output_str[:max_length] + "\n... [OUTPUT TRUNCATED] "
+        
+    return raw_output_str
+
 NORMALIZE_SYSTEM_SEARCH = """You convert raw security tool output into ONE JSON object.
 Output only the JSON. No prose, no markdown fences. Do not repeat the host information, just analyze the tool output.
 
 Schema:
 {
   "facts": {},        // structured data extracted from the output; lowercase keys; null for unknown values
+  "services": {       // if the output mentions a service, list it here with details
+        "port": {"name": "...", "version": "...", "more_info": "..."},
+        "port2": {"name": "...", "version": "...", "more_info": "..."},
+        ...
+    },
   "new_edges": [],    // relationships, e.g. {"from": "host", "to": "ssh", "type": "runs_service"}
   "confidence": 0.0   // float 0-1: how complete/correct this extraction is
 }
@@ -39,7 +88,8 @@ Example:
 
   },
   "services": {
-      "22": {"name": "ssh", "version": "8.2"}
+      "22": {"name": "ssh", "version": "8.2"},
+      "80": {"name": "http", "version": "Apache/2.4.41"}
   },
   "new_edges": [
     {"from": "host", "to": "ssh", "type": "runs_service"}
@@ -52,11 +102,12 @@ Make sure new_edges is not inside of facts.
 If the output is an error or empty, return empty facts, empty new_edges, and low confidence. The allowable keys for facts are services, vulnerabilities, os, hostname, and any other relevant information. The values should be structured as dictionaries or lists as appropriate."""
 
 def normalize_tool_output_search(tool: Tool, output: str, host: Host):
+    safe_output_str = truncate_raw_output_for_llm(output, max_length=1500)
     prompt = f"""
 Tool: {tool.name}
 Description: {tool.description}
 Current host info: {host.render()}
-Raw Output: {output}"""
+Raw Output: {safe_output_str}"""
     print("Normalizing tool output with prompt:", prompt)
     raw = request_llm(
             prompt,
@@ -64,87 +115,24 @@ Raw Output: {output}"""
             enable_thinking=False,
             schema=NormalizeResult,
             do_sample=False,
-            max_new_tokens=1024
+            max_new_tokens=2048
         )
+    
+    print("Normalizer LLM output:", raw)
+
     try:
         data = extract_json(raw)
     except (ValueError, json.JSONDecodeError):
         return {"facts": {}, "new_edges": [], "confidence": 0.0, "services": {}, "_raw": raw}
 
+    data = sanitize_normalizer_output(data)
     data.setdefault("facts", {})
     data.setdefault("new_edges", [])
     data.setdefault("confidence", 0.0)
     data.setdefault("services", {})
-    return data
 
-NORMALIZE_SYSTEM_FOOTHOLD = """You convert raw exploit tool output into ONE JSON object.
-Your primary goal is to extract CLAIMS of newly established access (footholds). 
-Output only the JSON. No prose, no markdown fences.
+    print("Sanitized normalizer output:", data)
 
-Schema:
-{
-  "facts": {},             // standard facts extracted (e.g., vulnerability confirmed)
-  "new_edges": [],         // standard relationships
-  "foothold_claims": [     // IF the output suggests a shell/access was obtained, list it here
-    {
-      "type": "webshell|reverse_shell|bind_shell|ssh_key|cron_job|suid_binary",
-      "details": {},       // Specifics needed to interact with the claim (see examples)
-      "raw_evidence": ""   // The exact sentence from the output that makes this claim
-    }
-  ],
-  "confidence": 0.0        // float 0-1: how complete/correct this extraction is
-}
-
-Details schema by type:
-- webshell: {"url": "http://...", "param": "cmd"}
-- reverse_shell: {"ip": "listener_ip", "port": 4444}
-- bind_shell: {"ip": "target_ip", "port": 5555}
-- ssh_key: {"user": "root", "key_path": "/root/.ssh/authorized_keys"}
-- suid_binary: {"path": "/usr/bin/find"}
-
-CRITICAL: If the output shows an ERROR, "FAILED", or "DENIED", foothold_claims MUST be an empty list [].
-Only add a claim if the text explicitly states a shell was spawned, a file was written, or a connection was made.
-
-Example 1 (Webshell):
-{
-  "facts": {"vulnerability": "unauthenticated_rce"},
-  "new_edges": [],
-  "foothold_claims": [{"type": "webshell", "details": {"url": "http://10.0.0.1/uploads/shell.php", "param": "cmd"}, "raw_evidence": "[+] Webshell planted at /var/www/html/uploads/shell.php"}],
-  "confidence": 0.95
-}
-
-Example 2 (Failed Exploit):
-{
-  "facts": {},
-  "new_edges": [],
-  "foothold_claims": [],
-  "confidence": 0.9
-}"""
-
-def normalize_tool_output_foothold(tool: Tool, output: str, host: Host):
-    prompt = f"""Tool: {tool.name}
-Description: {tool.description}
-
-Current host info: {host.render()}
-
-Raw Output: {output}"""
-    
-    raw = request_llm(
-            prompt,
-            system=NORMALIZE_SYSTEM_FOOTHOLD,
-            enable_thinking=False,
-            do_sample=False,
-            max_new_tokens=512
-        )
-    try:
-        data = extract_json(raw)
-    except (ValueError, Exception):
-        return {"facts": {}, "new_edges": [], "foothold_claims": [], "confidence": 0.0, "_raw": raw}
-
-    data.setdefault("facts", {})
-    data.setdefault("new_edges", [])
-    data.setdefault("foothold_claims", [])
-    data.setdefault("confidence", 0.0)
     return data
 
 NORMALIZE_SYSTEM_SEARCHSPLOIT = """You convert raw searchsploit output into ONE JSON object.
@@ -278,115 +266,6 @@ def _get_stdout(output) -> str:
     return str(output) if output else ""
 
 
-# ---------------------------------------------------------------------------
-# MSF Search normalizer — deterministic JSON parse, no LLM needed
-# ---------------------------------------------------------------------------
-
-def normalize_msf_search(output, tool: Tool, host: Host) -> dict:
-    raw = _get_stdout(output).strip()
-    try:
-        data = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return {"facts": {}, "new_edges": [], "confidence": 0.0, "_raw": raw}
-
-    modules = data.get("modules", [])
-    facts = {
-        "msf_search": {
-            "query": data.get("query", ""),
-            "module_type": data.get("module_type", ""),
-            "total_matches": data.get("total_matches", len(modules)),
-        }
-    }
-    edges = []
-    for m in modules:
-        fullname = m.get("fullname", m.get("path", ""))
-        edges.append({"from": "host", "to": fullname, "type": "has_msf_module"})
-
-    return {"facts": facts, "new_edges": edges, "confidence": 0.95}
-
-
-# ---------------------------------------------------------------------------
-# MSF Exploit normalizer — structured JSON parse + foothold claims from sessions
-# ---------------------------------------------------------------------------
-
-def normalize_msf_exploit(output, tool: Tool, host: Host) -> dict:
-    raw = _get_stdout(output).strip()
-    try:
-        data = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return {"facts": {}, "new_edges": [], "foothold_claims": [],
-                "confidence": 0.0, "_raw": raw}
-
-    facts = {"msf_exploit": {
-        "module_path": data.get("module_path", ""),
-        "status": data.get("status", ""),
-        "description": data.get("description", "")[:300],
-        "execute_result": data.get("execute_result", ""),
-    }}
-
-    edges = []
-    if data.get("status") == "executed":
-        edges.append({"from": "host", "to": data.get("module_path", ""),
-                      "type": "exploit_attempted"})
-
-    # Extract foothold claims from active sessions
-    foothold_claims = []
-    sessions = data.get("active_sessions", {})
-    if isinstance(sessions, dict) and sessions:
-        for sid, sinfo in sessions.items():
-            session_type = sinfo.get("type", "unknown")
-            claim_type = "meterpreter" if "meterpreter" in session_type else "msf_shell"
-            foothold_claims.append({
-                "type": claim_type,
-                "details": {
-                    "session_id": str(sid),
-                    "type": session_type,
-                    "tunnel_peer": sinfo.get("tunnel_peer", ""),
-                },
-                "raw_evidence": f"Session {sid} ({session_type}) active after exploit execution",
-            })
-
-    return {
-        "facts": facts,
-        "new_edges": edges,
-        "foothold_claims": foothold_claims,
-        "confidence": 0.95,
-    }
-
-
-# ---------------------------------------------------------------------------
-# MSF Sessions normalizer — structured JSON parse
-# ---------------------------------------------------------------------------
-
-def normalize_msf_sessions(output, tool: Tool, host: Host) -> dict:
-    raw = _get_stdout(output).strip()
-    try:
-        data = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return {"facts": {}, "new_edges": [], "confidence": 0.0, "_raw": raw}
-
-    action = data.get("action", "")
-    facts = {"msf_session": {"action": action}}
-
-    edges = []
-    if action == "list":
-        sessions = data.get("sessions", {})
-        facts["msf_session"]["active_count"] = data.get("count", len(sessions))
-        facts["msf_session"]["sessions"] = sessions
-        for sid in sessions:
-            edges.append({"from": "host", "to": f"session_{sid}", "type": "active_session"})
-    elif action in ("write", "write_and_read", "read"):
-        facts["msf_session"]["session_id"] = data.get("session_id", "")
-        facts["msf_session"]["command"] = data.get("command", "")
-        facts["msf_session"]["output"] = data.get("output", "")[:2000]
-
-    return {"facts": facts, "new_edges": edges, "confidence": 0.95}
-
-
-# ---------------------------------------------------------------------------
-# Web search normalizer — LLM extracts security-relevant intelligence
-# ---------------------------------------------------------------------------
-
 NORMALIZE_SYSTEM_WEB_SEARCH = """You convert web search results into structured security intelligence.
 Output only the JSON. No prose, no markdown fences.
 
@@ -442,11 +321,6 @@ Raw Output: {raw}"""
     data.setdefault("vulnerabilities", {})
     data.setdefault("confidence", 0.0)
     return data
-
-
-# ---------------------------------------------------------------------------
-# HTTP response normalizer — LLM extracts security signals
-# ---------------------------------------------------------------------------
 
 NORMALIZE_SYSTEM_HTTP = """You convert HTTP request/response data into structured security observations.
 Output only the JSON. No prose, no markdown fences.
@@ -508,46 +382,128 @@ Raw Output: {raw[:3000]}"""
     data.setdefault("confidence", 0.0)
     return data
 
+NORMALIZE_SYSTEM_VALIDATE = """You analyze raw security tool output from a VULNERABILITY VALIDATION scan (e.g., nmap --script vuln, nikto, specialized CVE checkers). 
+Output only the JSON. No prose, no markdown fences.
 
-# ---------------------------------------------------------------------------
-# Exploit exec normalizer — reuses foothold normalizer (same claim pattern)
-# ---------------------------------------------------------------------------
+Schema:
+{
+  "facts": {
+    "vuln_verified": false,    // MUST be true ONLY if the output explicitly states the host is VULNERABLE, EXPLOITABLE, or confirms a specific CVE/weakness.
+    "vuln_details": "",        // If vuln_verified is true, extract the specific vulnerability description here.
+    "vuln_id": "",             // e.g., "CVE-2009-1151" or "CWE-123" if mentioned.
+    "extra_info": ""           // Any other context (e.g., "Requires authentication", "Only affects SSLv2")
+  },
+  "services": {},              // Leave empty unless a NEW service was discovered during this specific scan.
+  "new_edges": [],
+  "confidence": 0.0            // How certain you are that the tool ran correctly and the output is parseable.
+}
 
-def normalize_exploit_exec(output, tool: Tool, host: Host) -> dict:
-    """Custom exploit output has the same success/failure pattern as foothold tools."""
-    return normalize_tool_output_foothold(tool, _get_stdout(output), host)
+RULES:
+- Look for keywords like "VULNERABLE", "EXPLOIT", "CVE-", "exploitable", "vuln".
+- If the output says "SAFE", "Not vulnerable", or just shows open ports without vuln data, "vuln_verified" MUST be false.
+- Do not guess. If the tool errored out, return confidence 0.0 and vuln_verified false."""
 
+def normalize_tool_output_validate(tool: Tool, output: str, host: Host) -> dict:
+    prompt = f"""
+Tool: {tool.name}
+Description: {tool.description}
+Current host info: {host.render()}
+Raw Output: {output}"""
+    
+    raw = request_llm(
+            prompt,
+            system=NORMALIZE_SYSTEM_VALIDATE,
+            enable_thinking=False,
+            max_new_tokens=1024
+        )
+    
+    try:
+        data = extract_json(raw)
+    except Exception:
+        return {"facts": {"vuln_verified": False, "vuln_details": "Failed to parse validation output"}, "services": {}, "new_edges": [], "confidence": 0.0}
 
-# ---------------------------------------------------------------------------
-# Master routing
-# ---------------------------------------------------------------------------
+    data.setdefault("facts", {})
+    data["facts"].setdefault("vuln_verified", False)
+    data["facts"].setdefault("vuln_details", "")
+    data["facts"].setdefault("vuln_id", "")
+    data.setdefault("services", {})
+    data.setdefault("new_edges", [])
+    data.setdefault("confidence", 0.0)
+    
+    return data
+
+NORMALIZE_SYSTEM_MSF = """You convert msfconsole output into structured JSON.
+Output only JSON.
+
+Schema:
+{
+  "facts": {
+    "vuln_verified": false,
+    "vuln_id": "",
+    "extra_info": ""
+  },
+  "services": {},
+  "vulnerabilities": {},
+  "foothold_claims": [],
+  "confidence": 0.0
+}
+
+Rules:
+- foothold_claims: copy through any session-opened events from the raw output.
+  Each claim: {"type": "meterpreter"|"msf_shell", "details": {...}}
+- vuln_verified=true ONLY if msfconsole reports "[+] <target> - Host is likely VULNERABLE" or similar.
+- Capture any new service banners msf identified (smb_version, ssh_version etc.) in services.
+"""
+
+def normalize_msf_output(tool, output, host):
+    raw = output.get("stdout", "") if isinstance(output, dict) else str(output)
+    claims = output.get("foothold_claims", []) if isinstance(output, dict) else []
+    prompt = f"Tool: {tool.name}\nRaw Output:\n{raw[:6000]}"
+    llm_raw = request_llm(prompt, system=NORMALIZE_SYSTEM_MSF,
+                          enable_thinking=False, do_sample=False, max_new_tokens=1024)
+    try:
+        data = extract_json(llm_raw)
+    except Exception:
+        data = {}
+    data.setdefault("facts", {})
+    data.setdefault("services", {})
+    data.setdefault("vulnerabilities", {})
+    data.setdefault("foothold_claims", [])
+    data["foothold_claims"] = claims or data["foothold_claims"]
+    data.setdefault("confidence", 0.5)
+    return data
 
 def normalize_tool_output(tool: Tool, output, host: Host, phase: str) -> dict:
-    # --- Search category tools ---
+
     if tool.category == "search":
         if tool.name == "cve_search_api":
             return normalize_cve_response(output)
         elif tool.name == "exploitdb_search":
             return normalize_searchsploit(output, tool, host)
-        elif tool.name == "msf_search":
-            return normalize_msf_search(output, tool, host)
-        elif tool.name == "web_search":
-            return normalize_web_search(output, tool, host)
         else:
             return normalize_tool_output_search(tool, output, host)
-
-    # --- Named tool dispatch (before phase fallback) ---
-    if tool.name == "msf_exploit":
-        return normalize_msf_exploit(output, tool, host)
-    elif tool.name == "msf_sessions":
-        return normalize_msf_sessions(output, tool, host)
+    elif phase == "validate_vuln":
+        return normalize_tool_output_validate(tool, output, host)
     elif tool.name == "http_request":
         return normalize_http_response(output, tool, host)
-    elif tool.name == "exploit_exec":
-        return normalize_exploit_exec(output, tool, host)
-
-    # --- Phase-based fallback ---
-    if phase == "establish_foothold":
-        return normalize_tool_output_foothold(tool, output, host)
-
+    elif tool.name == "msf_module" or tool.name == "msfvenom":
+        return normalize_msf_output(tool, output, host)
     return normalize_tool_output_search(tool, output, host)
+
+def check_opportunity(normalized_result: dict, host: Host) -> dict | None:
+    if not normalized_result.get("ok", True):
+        return None
+
+    claims = normalized_result.get("foothold_claims", [])
+    if claims:
+        return {"type": "claim", "data": claims[0]}
+
+    facts = normalized_result.get("facts", {})
+    if "ssh_private_key" in facts or "password" in facts:
+        return {
+            "type": "inferred_ssh", 
+            "data": {"type": "ssh_key", "details": facts}
+        }
+
+    return None
+

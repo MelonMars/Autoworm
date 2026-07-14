@@ -34,20 +34,41 @@ def render_proximal(G, host_id):
         lines.append(f"  {u} --{d.get('type', '?')}--> {v}")
     return "\n".join(lines)
 
+def format_vulns(vulns):
+    if not vulns:
+        return ""
+    
+    lines = ["Known Vulnerabilities:"]
+    
+    cve_scan = vulns.get("cve_scan", {})
+    if cve_scan.get("cves"):
+        for cve in cve_scan["cves"]:
+            cve_id = cve.get("id", "Unknown")
+            score = cve.get("cvss", {}).get("score", "N/A")
+            exploit = " (Exploit Available!)" if cve.get("exploit_available") else ""
+            lines.append(f"- {cve_id} [CVSS: {score}]{exploit}")
+    else:
+        lines.append(str(vulns))
+        
+    return "\n".join(lines) + "\n"
+
 def analyze(host: Host, G: DiGraph):
+    vuln_section = format_vulns(host.vulnerabilities)
+
     prompt = f"""
 Known Facts: {host.facts}
 Discovered Services: {host.services}
 OS: {host.os}
 Hostname: {host.hostname}
+{vuln_section}
 
 {render_proximal(G, host.id)}"""
     raw = request_llm(
             prompt,
             system=ANALYZE_SYSTEM,
-            enable_thinking=False,
+            enable_thinking=True,
             do_sample=False,
-            max_new_tokens=1024
+            max_new_tokens=4096
         )
     print("Analysis return raw: ", raw)
     try:

@@ -34,7 +34,7 @@ Schema: {
             "confidence": float, // a float 0-1: how likely this hypothesis is to be true
             "cwe": [str], // relevant CWE IDs
             "chain": str or null, // if multi-step, describe the chain (e.g. "info_disclosure -> cred_theft -> ssh_access")
-            "exploit_approach": str // high-level approach: "msf_exploit", "http_request", "exploit_exec", etc.
+            "exploit_approach": str // high-level approach: "http_request", "exploit_exec", etc.
         },
         ...
     ],
@@ -60,10 +60,13 @@ Signals: {signals}
     raw = request_llm(
             prompt,
             system=HYPOTHESIZER_SYSTEM,
-            enable_thinking=False,
+            enable_thinking=True,
             do_sample=False,
-            max_new_tokens=1024
+            max_new_tokens=4096
         )
+    
+    print("Hypothesizer LLM output:", raw)
+
     try:
         data = extract_json(raw)
     except (ValueError, Exception):

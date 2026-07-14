@@ -6,3 +6,7 @@ nuclei.exe
 campaign_checkpoint.pkl
 .vscode/
 Qwen3-8B/
+Qwen3-4B/
+exploitdb/
+Bonsai-27B-mlx-1bit/
+tools/__pycache__/

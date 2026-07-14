@@ -1,0 +1,12 @@
+[
+  {
+    "service": "ssh",
+    "users": ["root", "admin", "ubuntu", "user"],
+    "passwords": ["root", "toor", "admin", "password", "ubuntu", "123456", "changeme"]
+  },
+  {
+    "service": "http",
+    "users": ["admin", "administrator", "root", "user"],
+    "passwords": ["admin", "password", "admin123", "root", "changeme", "default"]
+  }
+]

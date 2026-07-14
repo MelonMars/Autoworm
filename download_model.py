@@ -2,16 +2,16 @@ from huggingface_hub import snapshot_download
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 import torch, os
 
-MODEL_ID = "Qwen/Qwen3-8B"
-LOCAL_DIR = "./Qwen3-8B"
-hf_token = "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"
+MODEL_ID = "prism-ml/Bonsai-27B-mlx-1bit"
+LOCAL_DIR = "./Bonsai-27B-mlx-1bit"
+hf_token = "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"
 
 snapshot_download(
     repo_id=MODEL_ID,
     local_dir=LOCAL_DIR,
     token=hf_token,
 
-    ignore_patterns=["*.pth", "*.gguf", "original/*"],
+    # ignore_patterns=["*.pth", "*.gguf", "original/*"],
 )
 
 tokenizer = AutoTokenizer.from_pretrained(LOCAL_DIR)

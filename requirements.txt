@@ -34,3 +34,4 @@ tqdm==4.68.3
 transformers==5.12.1
 typer==0.25.1
 typing_extensions==4.15.0
+duckduckgo-search==0.1.3

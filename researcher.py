@@ -1,3 +1,4 @@
+from proc_run import run
 from llm import request_llm, extract_json
 from validate_args import validate_args
 
@@ -13,10 +14,18 @@ Decide ONE step at a time. Output JSON:
 
 Use "done" once you have enough information. You only have the search tools here; you cannot execute the main action."""
 
-def run_research(action, exec_tool, host, search_tools, max_steps=5):
-    catalog = "\n".join(
-        f"- {t.name}: {t.description}\n{t.params_doc()}" for t in search_tools.values()
-    )
+def run_research(action, exec_tool, host, search_tools, search_tool_objects, max_steps=5):
+    if isinstance(search_tools, str):
+        catalog = search_tools
+        tool_list = search_tool_objects or []
+    else:
+        tool_list = list(search_tools)
+        catalog = "\n\n".join(
+            f"- {t.name}: {t.description}\n{t.params_doc()}" for t in tool_list
+        )
+
+    tool_lookup = {t.name: t for t in tool_list}
+
     findings = []
     for _ in range(max_steps):
         prompt = f"""
@@ -36,7 +45,7 @@ OS: {host.os}   Hostname: {host.hostname}   Host IP: {host.ip}
                 prompt += f"- {f['tool']}({f['args']}) -> {f['observation']}\n"
 
         raw = request_llm(prompt, system=SEARCH_SYSTEM,
-                          enable_thinking=False, do_sample=False, max_new_tokens=512)
+                          enable_thinking=True, do_sample=False, max_new_tokens=512)
         try:
             parsed = extract_json(raw)
         except Exception:
@@ -45,7 +54,7 @@ OS: {host.os}   Hostname: {host.hostname}   Host IP: {host.ip}
         if parsed.get("action") == "done":
             break
 
-        st = search_tools.get(parsed.get("tool"))
+        st = tool_lookup.get(parsed.get("tool"))
         if st is None:
             findings.append({"tool": parsed.get("tool"), "args": {},
                              "observation": "no such search tool"})
@@ -58,6 +67,7 @@ OS: {host.os}   Hostname: {host.hostname}   Host IP: {host.ip}
             continue
 
         result = st.execute_fn(args) if st.execute_fn is not None else run(st.build_command(args))
+        print(f"Research tool {st.name} executed with args {args}, result: {result}")
         obs = (result.get("stdout") or result.get("stderr") or f"exit {result.get('code')}")
         findings.append({"tool": st.name, "args": args, "observation": obs.strip()[:800]})
 

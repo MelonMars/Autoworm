@@ -5,25 +5,24 @@ import json
 import httpx
 
 
-def _parse_headers(headers: str) -> dict:
-    print("Parsing headers:", headers)
+def _parse_headers(headers) -> dict:
     if not headers:
         return {}
     if isinstance(headers, dict):
         return headers
-    headers = str(headers)
+    text = str(headers)
     try:
-        parsed = json.loads(headers)
+        parsed = json.loads(text)
         if isinstance(parsed, dict):
             return parsed
     except (json.JSONDecodeError, TypeError):
         pass
-    headers = {}
-    for line in headers.strip().splitlines():
+    result = {}
+    for line in text.strip().splitlines():
         if ":" in line:
             key, val = line.split(":", 1)
-            headers[key.strip()] = val.strip()
-    return headers
+            result[key.strip()] = val.strip()
+    return result
 
 
 def _http_request_execute(args: dict) -> dict:
