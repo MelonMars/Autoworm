@@ -65,8 +65,6 @@ Signals: {signals}
             max_new_tokens=4096
         )
     
-    print("Hypothesizer LLM output:", raw)
-
     try:
         data = extract_json(raw)
     except (ValueError, Exception):

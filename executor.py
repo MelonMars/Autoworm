@@ -46,7 +46,6 @@ Host IP: {host.ip}
 """
 
         if findings:
-            print(f"[*] Research findings: {findings}")
             prompt += f"\nRelevant findings from research:\n{findings}\n"
             
         if attempts:
@@ -82,7 +81,6 @@ Host IP: {host.ip}
         else:
             result = run(tool.build_command(args))
 
-        print("Tool execution result:", result)
         if result.get("code") == 0:
             return {"ok": True, "args": args, "rationale": parsed.get("rationale"),
                     "result": result, "attempts": attempt + 1}, raw

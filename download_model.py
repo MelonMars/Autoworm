@@ -2,8 +2,8 @@ from huggingface_hub import snapshot_download
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 import torch, os
 
-MODEL_ID = "prism-ml/Bonsai-27B-mlx-1bit"
-LOCAL_DIR = "./Bonsai-27B-mlx-1bit"
+MODEL_ID = "google/gemma-4-E4B"
+LOCAL_DIR = "./gemma-4-E4B"
 hf_token = "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"
 
 snapshot_download(

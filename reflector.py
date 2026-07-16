@@ -5,7 +5,6 @@ def evaluate_action_progress(host, last_result, remaining_actions, phase):
     prompts = json.load(open("prompts.json"))
     next_step = remaining_actions[0] if remaining_actions else "No further actions"
     
-    # Use .replace() instead of .format() to avoid crashing on JSON braces
     prompt_template = prompts[phase]["Reflector"]["Prompt"]
     
     prompt = prompt_template

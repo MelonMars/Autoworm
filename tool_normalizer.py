@@ -161,32 +161,43 @@ Rules:
 - Multiple exploits for the same CVE go into the same exploits list."""
 
 
-def normalize_searchsploit(output: str, tool: Tool, host: Host) -> dict:
-    prompt = f"""Tool: {tool.name}
-Description: {tool.description}
-
-Current host info: {host.facts}
-
-Raw Output: {output}"""
-
-    raw = request_llm(
-        prompt,
-        system=NORMALIZE_SYSTEM_SEARCHSPLOIT,
-        enable_thinking=False,
-        do_sample=False,
-        max_new_tokens=512,
-    )
+def normalize_searchsploit(output, tool: Tool, host: Host) -> dict:
+    raw_json = output.get("stdout", "") if isinstance(output, dict) else str(output)
     try:
-        data = extract_json(raw)
-    except (ValueError, Exception):
-        return {"facts": {}, "new_edges": [], "vulnerabilities": {}, "confidence": 0.0, "_raw": raw}
+        exploits_list = json.loads(raw_json)
+        if not isinstance(exploits_list, list):
+            exploits_list = []
+    except (json.JSONDecodeError, TypeError):
+        return {"facts": {}, "new_edges": [], "vulnerabilities": {}, "confidence": 0.0}
 
-    data.setdefault("vulnerabilities", {})
-    data.setdefault("confidence", 0.0)
-    data.setdefault("facts", {})
-    data.setdefault("new_edges", [])
-    return data
-
+    vulns = {}
+    unmatched = []
+    
+    for exp in exploits_list:
+        edb_id = str(exp.get("id", "")).strip()
+        title = exp.get("title", "")
+        path = exp.get("path", "")
+        exp_type = exp.get("type", "")
+        
+        entry = {"id": edb_id, "title": title, "path": path, "type": exp_type}
+        
+        cve_match = re.search(r'CVE-\d{4}-\d{4,7}', title, re.IGNORECASE)
+        
+        if cve_match:
+            cve_id = cve_match.group(0).upper()
+            if cve_id not in vulns:
+                vulns[cve_id] = {"exploits": []}
+            vulns[cve_id]["exploits"].append(entry)
+        else:
+            unmatched.append(entry)
+            
+    return {
+        "facts": {},
+        "new_edges": [],
+        "vulnerabilities": vulns,
+        "unmatched_exploits": unmatched,
+        "confidence": 1.0 if exploits_list else 0.0
+    }
 
 def normalize_cve_response(output: str) -> dict:
     try:
@@ -473,8 +484,47 @@ def normalize_msf_output(tool, output, host):
     data.setdefault("confidence", 0.5)
     return data
 
-def normalize_tool_output(tool: Tool, output, host: Host, phase: str) -> dict:
+NORMALIZE_SYSTEM_EXPLOIT = """You analyze raw output from an EXPLOIT execution.
+Determine if a foothold was established, credentials obtained, or the exploit failed.
 
+Schema:
+{
+  "facts": {
+    "exploit_succeeded": false,
+    "foothold_type": "",         // "ssh_key"|"meterpreter"|"msf_shell"|"webshell"|"reverse_shell"|null
+    "credentials": [],           // [{"user":"...","password":"...","source":"..."}]
+    "session_id": "",            // MSF session ID if applicable
+    "error_indicators": []
+  },
+  "foothold_claims": [],         // [{"type":"...","details":{...}}]
+  "vulnerabilities": {},
+  "confidence": 0.0
+}
+
+Rules:
+- exploit_succeeded=true ONLY if output shows: session opened, shell access, command execution confirmed, or valid credentials returned.
+- For MSF: look for "[*] Command shell session N opened"
+- For default_creds: look for "[+ SUCCESS]"
+- For ssh key drops: look for key material or successful echo of verification token
+"""
+
+def normalize_tool_output_exploit(tool, output, host):
+    raw = output.get("stdout", "") if isinstance(output, dict) else str(output)
+    claims = output.get("foothold_claims", []) if isinstance(output, dict) else []
+    prompt = f"Tool: {tool.name}\nDescription: {tool.description}\nHost: {host.render()}\nRaw Output:\n{raw[:6000]}"
+    llm_raw = request_llm(prompt, system=NORMALIZE_SYSTEM_EXPLOIT,
+                          enable_thinking=False, do_sample=False, max_new_tokens=1024)
+    try:
+        data = extract_json(llm_raw)
+    except Exception:
+        data = {}
+    data.setdefault("facts", {})
+    data.setdefault("foothold_claims", claims or [])
+    data.setdefault("vulnerabilities", {})
+    data.setdefault("confidence", 0.3)
+    return data
+
+def normalize_tool_output(tool: Tool, output, host: Host, phase: str) -> dict:
     if tool.category == "search":
         if tool.name == "cve_search_api":
             return normalize_cve_response(output)
@@ -482,12 +532,18 @@ def normalize_tool_output(tool: Tool, output, host: Host, phase: str) -> dict:
             return normalize_searchsploit(output, tool, host)
         else:
             return normalize_tool_output_search(tool, output, host)
-    elif phase == "validate_vuln":
+            
+    if phase == "validate_vuln":
         return normalize_tool_output_validate(tool, output, host)
-    elif tool.name == "http_request":
+        
+    if phase == "exploit_vuln":
+        return normalize_tool_output_exploit(tool, output, host)
+        
+    if tool.name == "http_request":
         return normalize_http_response(output, tool, host)
     elif tool.name == "msf_module" or tool.name == "msfvenom":
         return normalize_msf_output(tool, output, host)
+        
     return normalize_tool_output_search(tool, output, host)
 
 def check_opportunity(normalized_result: dict, host: Host) -> dict | None:

@@ -10,3 +10,10 @@ Qwen3-4B/
 exploitdb/
 Bonsai-27B-mlx-1bit/
 tools/__pycache__/
+bin/
+models/
+*.gguf
+gemma-4-E4B/
+vendor/
+nmap_scripts/
+*.pyc

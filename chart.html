@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Block Diagram Editor</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --panel:#ffffff; --line:#e3e6ea; --ink:#2b2f36;
+    --muted:#7a828c; --accent:#3a6ea5; --accent-soft:#e9f0f8;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); background:var(--bg);
+    display:flex; flex-direction:column; height:100vh; overflow:hidden;
+  }
+  header{
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+    padding:8px 14px; background:var(--panel); border-bottom:1px solid var(--line);
+  }
+  header h1{font-size:14px; font-weight:600; margin:0; letter-spacing:.2px}
+  .grp{display:flex; align-items:center; gap:6px}
+  .sep{width:1px; height:26px; background:var(--line); margin:0 2px}
+  button.tool{
+    font:inherit; font-size:12.5px; padding:6px 11px; border:1px solid var(--line);
+    background:#fff; color:var(--ink); border-radius:7px; cursor:pointer; line-height:1;
+    transition:background .12s,border-color .12s,box-shadow .12s;
+  }
+  button.tool:hover{background:#f2f4f7}
+  button.tool:active{transform:translateY(.5px)}
+  button.tool.on{background:var(--accent); color:#fff; border-color:var(--accent)}
+  button.tool.danger:hover{background:#fdecea; border-color:#e6b0a6; color:#b23}
+  .swatches{display:flex; gap:5px}
+  .sw{width:24px; height:24px; border-radius:6px; border:1px solid rgba(0,0,0,.12); cursor:pointer;
+      display:flex; align-items:center; justify-content:center}
+  .sw.sel{outline:2px solid var(--accent); outline-offset:1px}
+  .label{font-size:11px; color:var(--muted); margin-right:2px}
+  #stage{flex:1; position:relative; overflow:auto; background:var(--bg)}
+  svg{display:block; touch-action:none}
+  .hint{
+    position:absolute; left:50%; bottom:14px; transform:translateX(-50%);
+    background:rgba(43,47,54,.9); color:#fff; font-size:12px; padding:6px 12px;
+    border-radius:8px; pointer-events:none; opacity:0; transition:opacity .2s; white-space:nowrap;
+  }
+  .hint.show{opacity:1}
+  .node-rect{cursor:grab}
+  .node.dragging .node-rect{cursor:grabbing}
+  .handle{fill:#fff; stroke:var(--accent); stroke-width:1.5; cursor:nwse-resize; opacity:0}
+  .node.sel .handle{opacity:1}
+  .node.sel .node-rect{filter:drop-shadow(0 0 0 var(--accent))}
+  .sel-ring{fill:none; stroke:var(--accent); stroke-width:2; stroke-dasharray:5 4; opacity:0}
+  .node.sel .sel-ring{opacity:1}
+  .edge-hit{stroke:transparent; stroke-width:14; fill:none; cursor:pointer}
+  .edge.sel .edge-line{stroke:var(--accent)}
+  .conn-src .node-rect{stroke:var(--accent) !important; stroke-width:2.5 !important}
+  foreignObject div.txt{
+    width:100%; height:100%; display:flex; align-items:center; justify-content:center;
+    text-align:center; padding:4px 6px; font-family:inherit; overflow:hidden; line-height:1.2;
+  }
+  #editor{position:absolute; display:none; border:2px solid var(--accent); border-radius:6px;
+    padding:4px 6px; font-family:inherit; resize:none; text-align:center; outline:none; z-index:20;
+    background:#fff; overflow:hidden}
+  .empty{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:#b7bdc6; font-size:14px; pointer-events:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>Block Diagram</h1>
+  <div class="sep"></div>
+  <div class="grp">
+    <button class="tool" id="addBox">+ Box</button>
+    <button class="tool" id="addContainer">+ Container</button>
+  </div>
+  <div class="sep"></div>
+  <div class="grp">
+    <span class="label">Fill</span>
+    <div class="swatches" id="swatches"></div>
+  </div>
+  <div class="sep"></div>
+  <div class="grp">
+    <button class="tool" id="connect">Connect</button>
+    <button class="tool" id="arrowHeads" title="Toggle arrowheads on selected edge">⇄ Heads</button>
+  </div>
+  <div class="sep"></div>
+  <div class="grp">
+    <button class="tool danger" id="del">Delete</button>
+    <button class="tool" id="toBack">Send back</button>
+  </div>
+  <div class="sep"></div>
+  <div class="grp">
+    <button class="tool" id="expSvg">Export SVG</button>
+    <button class="tool" id="expPng">Export PNG</button>
+    <button class="tool danger" id="clear">Clear</button>
+  </div>
+</header>
+
+<div id="stage">
+  <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+        <circle cx="1.2" cy="1.2" r="1.2" fill="#e2e5ea"/>
+      </pattern>
+      <marker id="arrow" markerWidth="9" markerHeight="9" refX="7.5" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#556"/>
+      </marker>
+      <marker id="arrowStart" markerWidth="9" markerHeight="9" refX="0.5" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+        <path d="M0,0 L8,4 L0,8 Z" fill="#556"/>
+      </marker>
+    </defs>
+    <rect id="bg" x="0" y="0" width="100%" height="100%" fill="url(#dots)"/>
+    <g id="edges"></g>
+    <g id="nodes"></g>
+  </svg>
+  <div class="empty" id="empty">Add a box or container to begin</div>
+  <textarea id="editor" spellcheck="false"></textarea>
+  <div class="hint" id="hint"></div>
+</div>
+
+<script>
+const SVGNS="http://www.w3.org/2000/svg";
+const svg=document.getElementById("svg");
+const gEdges=document.getElementById("edges");
+const gNodes=document.getElementById("nodes");
+const stage=document.getElementById("stage");
+const editor=document.getElementById("editor");
+const emptyMsg=document.getElementById("empty");
+
+const CANVAS_W=2200, CANVAS_H=1400;
+svg.setAttribute("width",CANVAS_W);
+svg.setAttribute("height",CANVAS_H);
+svg.setAttribute("viewBox",`0 0 ${CANVAS_W} ${CANVAS_H}`);
+
+// palette — mirrors the pastel look of the reference figure
+const PALETTE=[
+  {name:"blue",   fill:"#d7e5f2", stroke:"#5a83b0", text:"#264a6e"},
+  {name:"yellow", fill:"#fbf0cc", stroke:"#d6b95f", text:"#6b5410"},
+  {name:"green",  fill:"#dcebd2", stroke:"#7aa356", text:"#3c6323"},
+  {name:"pink",   fill:"#f2d6d0", stroke:"#c47b6f", text:"#8a3a2c"},
+  {name:"purple", fill:"#e3ddf0", stroke:"#9285b8", text:"#4a3d75"},
+  {name:"gray",   fill:"#eef0f2", stroke:"#9aa0a8", text:"#3a3f46"},
+];
+let currentColor=PALETTE[0];
+
+let nodes=[]; // {id,x,y,w,h,text,color,isContainer}
+let edges=[]; // {id,from,to,label,startHead,endHead}
+let uid=1;
+let selected=null;      // {kind:'node'|'edge', id}
+let connectMode=false;
+let connectSrc=null;
+
+/* ---------- swatches ---------- */
+const swWrap=document.getElementById("swatches");
+PALETTE.forEach((c,i)=>{
+  const d=document.createElement("div");
+  d.className="sw"+(i===0?" sel":"");
+  d.style.background=c.fill; d.style.borderColor=c.stroke;
+  d.title=c.name;
+  d.onclick=()=>{
+    currentColor=c;
+    [...swWrap.children].forEach(x=>x.classList.remove("sel"));
+    d.classList.add("sel");
+    if(selected&&selected.kind==="node"){
+      const n=nodes.find(n=>n.id===selected.id); if(n){n.color=c; render();}
+    }
+  };
+  swWrap.appendChild(d);
+});
+
+/* ---------- helpers ---------- */
+function toCanvas(clientX,clientY){
+  const r=svg.getBoundingClientRect();
+  return {x:clientX-r.left, y:clientY-r.top};
+}
+function nodeById(id){return nodes.find(n=>n.id===id);}
+function center(n){return {x:n.x+n.w/2, y:n.y+n.h/2};}
+
+// intersection of segment from box center toward (tx,ty) with box border
+function edgePoint(n,tx,ty){
+  const c=center(n), dx=tx-c.x, dy=ty-c.y;
+  if(dx===0&&dy===0) return c;
+  const hw=n.w/2, hh=n.h/2;
+  const sx=dx===0?Infinity:hw/Math.abs(dx);
+  const sy=dy===0?Infinity:hh/Math.abs(dy);
+  const s=Math.min(sx,sy);
+  return {x:c.x+dx*s, y:c.y+dy*s};
+}
+
+/* ---------- create ---------- */
+function addNode(isContainer){
+  const scrollX=stage.scrollLeft, scrollY=stage.scrollTop;
+  const n={
+    id:uid++,
+    x:scrollX+120+Math.random()*40,
+    y:scrollY+100+Math.random()*40,
+    w:isContainer?320:150,
+    h:isContainer?200:64,
+    text:isContainer?"Container":"Label",
+    color:currentColor,
+    isContainer:!!isContainer,
+  };
+  nodes.push(n);
+  if(isContainer) nodes.unshift(nodes.pop()); // containers behind
+  selected={kind:"node",id:n.id};
+  render();
+}
+
+function addEdge(from,to){
+  if(from===to) return;
+  if(edges.some(e=>e.from===from&&e.to===to)) return;
+  const e={id:uid++,from,to,label:"",startHead:false,endHead:true};
+  edges.push(e);
+  selected={kind:"edge",id:e.id};
+  render();
+}
+
+/* ---------- render ---------- */
+function render(){
+  emptyMsg.style.display=nodes.length?"none":"flex";
+  // edges
+  gEdges.innerHTML="";
+  edges.forEach(e=>{
+    const a=nodeById(e.from), b=nodeById(e.to);
+    if(!a||!b) return;
+    const ca=center(a), cb=center(b);
+    const p1=edgePoint(a,cb.x,cb.y);
+    const p2=edgePoint(b,ca.x,ca.y);
+    const g=el("g",{class:"edge"+(isSel("edge",e.id)?" sel":""),"data-id":e.id});
+    g.appendChild(el("line",{class:"edge-line",x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y,
+      stroke:"#556","stroke-width":1.8,
+      "marker-end":e.endHead?"url(#arrow)":"",
+      "marker-start":e.startHead?"url(#arrowStart)":""}));
+    const hit=el("line",{class:"edge-hit",x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y});
+    hit.addEventListener("mousedown",ev=>{ev.stopPropagation(); selected={kind:"edge",id:e.id}; render();});
+    hit.addEventListener("dblclick",ev=>{ev.stopPropagation(); editEdgeLabel(e);});
+    g.appendChild(hit);
+    if(e.label){
+      const mx=(p1.x+p2.x)/2, my=(p1.y+p2.y)/2;
+      const fo=el("foreignObject",{x:mx-70,y:my-14,width:140,height:28,style:"overflow:visible;pointer-events:none"});
+      const div=document.createElement("div");
+      div.setAttribute("xmlns","http://www.w3.org/1999/xhtml");
+      div.style.cssText="display:flex;align-items:center;justify-content:center;height:28px;font-family:inherit";
+      const span=document.createElement("span");
+      span.textContent=e.label;
+      span.style.cssText="background:#f7f8fa;padding:1px 5px;border-radius:4px;font-size:11px;color:#556;white-space:nowrap";
+      div.appendChild(span); fo.appendChild(div); g.appendChild(fo);
+    }
+    gEdges.appendChild(g);
+  });
+  // nodes
+  gNodes.innerHTML="";
+  nodes.forEach(n=>{
+    const g=el("g",{class:"node"+(isSel("node",n.id)?" sel":"")+(connectSrc===n.id?" conn-src":""),
+      "data-id":n.id, transform:`translate(${n.x},${n.y})`});
+    g.appendChild(el("rect",{class:"sel-ring",x:-3,y:-3,width:n.w+6,height:n.h+6,rx:9}));
+    const rect=el("rect",{class:"node-rect",x:0,y:0,width:n.w,height:n.h,rx:7,
+      fill:n.isContainer?"rgba(255,255,255,.35)":n.color.fill,
+      stroke:n.color.stroke,"stroke-width":1.4});
+    g.appendChild(rect);
+    if(n.isContainer){
+      g.appendChild(el("rect",{x:0,y:0,width:n.w,height:26,rx:7,fill:n.color.fill,stroke:n.color.stroke,"stroke-width":1.4}));
+      g.appendChild(el("rect",{x:0,y:14,width:n.w,height:12,fill:n.color.fill})); // square off bottom of title
+      const fo=el("foreignObject",{x:0,y:0,width:n.w,height:26});
+      fo.appendChild(txtDiv(n.text,n.color.text,true));
+      g.appendChild(fo);
+    }else{
+      const fo=el("foreignObject",{x:0,y:0,width:n.w,height:n.h});
+      fo.appendChild(txtDiv(n.text,n.color.text,false));
+      g.appendChild(fo);
+    }
+    const hs=10;
+    const handle=el("rect",{class:"handle",x:n.w-hs/2,y:n.h-hs/2,width:hs,height:hs,rx:2});
+    handle.addEventListener("mousedown",ev=>startResize(ev,n));
+    g.appendChild(handle);
+
+    rect.addEventListener("mousedown",ev=>onNodeDown(ev,n));
+    if(n.isContainer){ // title bar also draggable
+      g.querySelectorAll("rect")[2] && g.querySelectorAll("rect")[2].addEventListener("mousedown",ev=>onNodeDown(ev,n));
+    }
+    g.addEventListener("dblclick",ev=>{ev.stopPropagation(); editNodeText(n);});
+    gNodes.appendChild(g);
+  });
+  syncHeadBtn();
+}
+function txtDiv(text,color,bold){
+  const d=document.createElement("div");
+  d.setAttribute("xmlns","http://www.w3.org/1999/xhtml");
+  d.className="txt";
+  d.style.color=color; d.style.fontSize="13px";
+  d.style.fontWeight=bold?"600":"500";
+  d.textContent=text;
+  return d;
+}
+function el(tag,attrs){
+  const e=document.createElementNS(SVGNS,tag);
+  for(const k in attrs) e.setAttribute(k,attrs[k]);
+  return e;
+}
+function isSel(kind,id){return selected&&selected.kind===kind&&selected.id===id;}
+
+/* ---------- interactions ---------- */
+function onNodeDown(ev,n){
+  ev.stopPropagation();
+  if(connectMode){
+    if(connectSrc===null){ connectSrc=n.id; render(); showHint("Now click the target box"); }
+    else { addEdge(connectSrc,n.id); connectSrc=null; }
+    return;
+  }
+  selected={kind:"node",id:n.id};
+  // sync swatch
+  const idx=PALETTE.indexOf(n.color);
+  [...swWrap.children].forEach((x,i)=>x.classList.toggle("sel",i===idx));
+  const start=toCanvas(ev.clientX,ev.clientY);
+  const ox=start.x-n.x, oy=start.y-n.y;
+  const gEl=()=>gNodes.querySelector(`[data-id="${n.id}"]`);
+  gEl()&&gEl().classList.add("dragging");
+  function move(e){
+    const p=toCanvas(e.clientX,e.clientY);
+    n.x=Math.round(p.x-ox); n.y=Math.round(p.y-oy);
+    render();
+  }
+  function up(){
+    document.removeEventListener("mousemove",move);
+    document.removeEventListener("mouseup",up);
+  }
+  document.addEventListener("mousemove",move);
+  document.addEventListener("mouseup",up);
+  render();
+}
+function startResize(ev,n){
+  ev.stopPropagation();
+  const start=toCanvas(ev.clientX,ev.clientY);
+  const sw=n.w, sh=n.h;
+  function move(e){
+    const p=toCanvas(e.clientX,e.clientY);
+    n.w=Math.max(60,Math.round(sw+(p.x-start.x)));
+    n.h=Math.max(36,Math.round(sh+(p.y-start.y)));
+    render();
+  }
+  function up(){document.removeEventListener("mousemove",move);document.removeEventListener("mouseup",up);}
+  document.addEventListener("mousemove",move);
+  document.addEventListener("mouseup",up);
+}
+
+svg.addEventListener("mousedown",()=>{ selected=null; if(connectMode){connectSrc=null;} render(); });
+
+/* ---------- text editing ---------- */
+let editing=null; // {kind, ref}
+function editNodeText(n){
+  const r=svg.getBoundingClientRect();
+  const isC=n.isContainer;
+  const bx=r.left+n.x - stage.getBoundingClientRect().left + stage.scrollLeft*0; // editor is inside stage
+  showEditor(n.x, n.y, n.w, isC?26:n.h, n.text, n.color.text, isC);
+  editing={kind:"node",ref:n};
+}
+function editEdgeLabel(e){
+  const a=nodeById(e.from),b=nodeById(e.to);
+  const ca=center(a),cb=center(b);
+  const p1=edgePoint(a,cb.x,cb.y),p2=edgePoint(b,ca.x,ca.y);
+  const mx=(p1.x+p2.x)/2, my=(p1.y+p2.y)/2;
+  showEditor(mx-70,my-14,140,28,e.label,"#556",false);
+  editing={kind:"edge",ref:e};
+}
+function showEditor(x,y,w,h,text,color,bold){
+  editor.style.display="block";
+  editor.style.left=(x - stage.scrollLeft)+"px";
+  editor.style.top=(y - stage.scrollTop)+"px";
+  editor.style.width=w+"px"; editor.style.height=h+"px";
+  editor.style.color=color; editor.style.fontWeight=bold?"600":"500";
+  editor.style.fontSize="13px";
+  editor.value=text;
+  editor.focus(); editor.select();
+}
+editor.addEventListener("blur",commitEdit);
+editor.addEventListener("keydown",e=>{
+  if(e.key==="Enter"&&!e.shiftKey){e.preventDefault(); editor.blur();}
+  if(e.key==="Escape"){editing=null; editor.style.display="none";}
+});
+function commitEdit(){
+  if(!editing) return;
+  const v=editor.value;
+  if(editing.kind==="node") editing.ref.text=v;
+  else editing.ref.label=v;
+  editing=null; editor.style.display="none"; render();
+}
+stage.addEventListener("scroll",()=>{ if(editing) editor.blur(); });
+
+/* ---------- toolbar ---------- */
+document.getElementById("addBox").onclick=()=>addNode(false);
+document.getElementById("addContainer").onclick=()=>addNode(true);
+document.getElementById("connect").onclick=e=>{
+  connectMode=!connectMode; connectSrc=null;
+  e.target.classList.toggle("on",connectMode);
+  showHint(connectMode?"Click a source box, then a target box":"");
+  render();
+};
+document.getElementById("arrowHeads").onclick=()=>{
+  if(selected&&selected.kind==="edge"){
+    const e=edges.find(x=>x.id===selected.id);
+    // cycle: end -> both -> start -> none -> end
+    const s=e.startHead, t=e.endHead;
+    if(!s&&t){e.startHead=true;e.endHead=true;}
+    else if(s&&t){e.startHead=true;e.endHead=false;}
+    else if(s&&!t){e.startHead=false;e.endHead=false;}
+    else {e.startHead=false;e.endHead=true;}
+    render();
+  } else showHint("Select an edge first");
+};
+function syncHeadBtn(){
+  document.getElementById("arrowHeads").disabled = !(selected&&selected.kind==="edge");
+}
+document.getElementById("del").onclick=deleteSelected;
+document.getElementById("toBack").onclick=()=>{
+  if(selected&&selected.kind==="node"){
+    const i=nodes.findIndex(n=>n.id===selected.id);
+    if(i>0){const [n]=nodes.splice(i,1); nodes.unshift(n); render();}
+  }
+};
+document.getElementById("clear").onclick=()=>{
+  if(nodes.length&&!confirm("Clear the whole canvas?")) return;
+  nodes=[];edges=[];selected=null;connectSrc=null;render();
+};
+function deleteSelected(){
+  if(!selected) return;
+  if(selected.kind==="node"){
+    nodes=nodes.filter(n=>n.id!==selected.id);
+    edges=edges.filter(e=>e.from!==selected.id&&e.to!==selected.id);
+  } else edges=edges.filter(e=>e.id!==selected.id);
+  selected=null; render();
+}
+document.addEventListener("keydown",e=>{
+  if(document.activeElement===editor) return;
+  if(e.key==="Delete"||e.key==="Backspace"){e.preventDefault(); deleteSelected();}
+});
+
+/* ---------- export ---------- */
+function serialize(){
+  // clone svg, trim to content bounds, strip UI-only bits
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  nodes.forEach(n=>{minX=Math.min(minX,n.x);minY=Math.min(minY,n.y);maxX=Math.max(maxX,n.x+n.w);maxY=Math.max(maxY,n.y+n.h);});
+  if(!nodes.length){minX=0;minY=0;maxX=CANVAS_W;maxY=CANVAS_H;}
+  const pad=40;
+  minX-=pad;minY-=pad;maxX+=pad;maxY+=pad;
+  const w=maxX-minX,h=maxY-minY;
+  const clone=svg.cloneNode(true);
+  clone.setAttribute("width",w); clone.setAttribute("height",h);
+  clone.setAttribute("viewBox",`${minX} ${minY} ${w} ${h}`);
+  // white background instead of dots
+  const bg=clone.querySelector("#bg"); if(bg){bg.setAttribute("fill","#ffffff");bg.setAttribute("x",minX);bg.setAttribute("y",minY);bg.setAttribute("width",w);bg.setAttribute("height",h);}
+  // remove selection rings, handles, hit lines, connect highlight classes
+  clone.querySelectorAll(".sel-ring,.handle,.edge-hit").forEach(x=>x.remove());
+  clone.querySelectorAll(".node,.edge").forEach(x=>x.setAttribute("class",x.getAttribute("class").replace(/\b(sel|conn-src|dragging)\b/g,"").trim()));
+  const dots=clone.querySelector("#dots"); if(dots)dots.remove();
+  return new XMLSerializer().serializeToString(clone);
+}
+function download(name,blob){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+document.getElementById("expSvg").onclick=()=>{
+  download("diagram.svg",new Blob([serialize()],{type:"image/svg+xml"}));
+};
+document.getElementById("expPng").onclick=()=>{
+  const str=serialize();
+  const img=new Image();
+  const svgBlob=new Blob([str],{type:"image/svg+xml;charset=utf-8"});
+  const url=URL.createObjectURL(svgBlob);
+  img.onload=()=>{
+    const scale=2;
+    const c=document.createElement("canvas");
+    c.width=img.width*scale; c.height=img.height*scale;
+    const ctx=c.getContext("2d");
+    ctx.scale(scale,scale);
+    ctx.drawImage(img,0,0);
+    URL.revokeObjectURL(url);
+    c.toBlob(b=>download("diagram.png",b),"image/png");
+  };
+  img.onerror=()=>{URL.revokeObjectURL(url); alert("PNG export failed in this browser — SVG export always works.");};
+  img.src=url;
+};
+
+/* ---------- hint ---------- */
+let hintT;
+function showHint(msg){
+  const h=document.getElementById("hint");
+  if(!msg){h.classList.remove("show");return;}
+  h.textContent=msg; h.classList.add("show");
+  clearTimeout(hintT); hintT=setTimeout(()=>h.classList.remove("show"),2600);
+}
+
+/* ---------- seed example ---------- */
+(function seed(){
+  const mk=(x,y,w,h,text,ci,cont)=>{const n={id:uid++,x,y,w,h,text,color:PALETTE[ci],isContainer:!!cont};return n;};
+  const cont=mk(60,80,300,300,"Hierarchical Memory",5,true);
+  const a=mk(80,120,120,44,"Current Phase",0);
+  const b=mk(215,120,125,44,"Agent Identity",0);
+  const c=mk(80,180,140,44,"Machine info",1);
+  const d=mk(240,180,100,44,"Failures",3);
+  const cont2=mk(430,80,300,300,"Reasoning Graph",5,true);
+  const p=mk(455,120,250,44,"Plan Node",0);
+  const j=mk(455,180,250,44,"Judge Node",0);
+  const ac=mk(455,240,250,44,"Action Node",0);
+  const tools=mk(800,140,150,180,"Tools",5,true);
+  const t1=mk(820,175,110,40,"Tool 1",1);
+  nodes=[cont,cont2,tools,a,b,c,d,p,j,ac,t1];
+  edges=[
+    {id:uid++,from:cont.id,to:cont2.id,label:"Read memory",startHead:false,endHead:true},
+    {id:uid++,from:p.id,to:j.id,label:"",startHead:false,endHead:true},
+    {id:uid++,from:j.id,to:ac.id,label:"",startHead:false,endHead:true},
+    {id:uid++,from:ac.id,to:tools.id,label:"use",startHead:true,endHead:true},
+  ];
+  render();
+})();
+</script>
+</body>
+</html>

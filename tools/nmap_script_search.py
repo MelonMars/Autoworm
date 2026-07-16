@@ -1,5 +1,3 @@
-# tools/nmap_script_search.py
-
 import os
 import re
 import json
@@ -13,12 +11,10 @@ os.makedirs(NSE_SCRIPT_DIR, exist_ok=True)
 
 SCRIPT_DB_URL = "https://raw.githubusercontent.com/nmap/nmap/master/scripts/script.db"
 SCRIPT_DB_CACHE = os.path.join(NSE_SCRIPT_DIR, "_script_db.json")
-CACHE_TTL = 86400  # 24 hours
+CACHE_TTL = 86400
 
 
 def _fetch_script_db() -> list[dict]:
-    """Fetch and parse nmap's official script.db (names + categories), cached locally."""
-    # ── try cache ──
     if os.path.exists(SCRIPT_DB_CACHE):
         try:
             with open(SCRIPT_DB_CACHE, "r", encoding="utf-8") as f:
@@ -28,7 +24,6 @@ def _fetch_script_db() -> list[dict]:
         except (json.JSONDecodeError, KeyError):
             pass
 
-    # ── fetch from GitHub ──
     try:
         print("[*] Fetching NSE script database from GitHub...")
         resp = requests.get(SCRIPT_DB_URL, timeout=15)
@@ -36,15 +31,11 @@ def _fetch_script_db() -> list[dict]:
             raise RuntimeError(f"HTTP {resp.status_code}")
         content = resp.text
     except Exception as e:
-        # fall back to stale cache if network fails
         if os.path.exists(SCRIPT_DB_CACHE):
             with open(SCRIPT_DB_CACHE, "r", encoding="utf-8") as f:
                 return json.load(f)["scripts"]
         return {"code": 1, "stdout": "", "stderr": f"Cannot reach GitHub: {e}"}
 
-    # ── parse  ──
-    # Each line looks like:
-    #   Entry { filename = "smb-vuln-ms17-010.nse", categories = { "vuln", "safe", } }
     scripts = []
     for line in content.splitlines():
         m_name = re.search(r'filename\s*=\s*"(.+?)\.nse"', line)
@@ -55,7 +46,6 @@ def _fetch_script_db() -> list[dict]:
         categories = re.findall(r'"(\w+)"', m_cats.group(1)) if m_cats else []
         scripts.append({"name": name, "categories": categories})
 
-    # ── write cache ──
     with open(SCRIPT_DB_CACHE, "w", encoding="utf-8") as f:
         json.dump({"scripts": scripts, "fetched": time.time()}, f)
 
@@ -63,7 +53,6 @@ def _fetch_script_db() -> list[dict]:
     return scripts
 
 
-# ── Keyword → likely service prefix mapping ──
 _SERVICE_PREFIXES = {
     "ssh": "ssh", "ftp": "ftp", "http": "http", "https": "http",
     "smb": "smb", "samba": "smb", "mysql": "mysql", "rdp": "rdp",
@@ -79,7 +68,6 @@ def _search_nse_execute(args: dict) -> dict:
     service = args.get("service", "").lower().strip()
     category = args.get("category", "").lower().strip()
 
-    # resolve friendly service names to NSE name prefixes
     prefix = _SERVICE_PREFIXES.get(service, service)
 
     try:
@@ -87,7 +75,6 @@ def _search_nse_execute(args: dict) -> dict:
     except Exception as e:
         return {"code": 1, "stdout": "", "stderr": str(e)}
 
-    # ── filter ──
     matches = []
     for s in all_scripts:
         name = s["name"].lower()
@@ -95,39 +82,31 @@ def _search_nse_execute(args: dict) -> dict:
 
         score = 0
 
-        # category filter (hard filter)
         if category and category not in cats:
             continue
 
-        # prefix / service match (highest value)
         if prefix and name.startswith(prefix + "-"):
             score += 10
 
-        # keyword anywhere in name
         if keyword and keyword in name:
             score += 5
 
-        # vuln/exploit bonus — these are usually what the agent wants
         if "vuln" in cats or "exploit" in cats:
             score += 2
         if "safe" in cats:
             score += 1
 
-        # must match at least something
         if not keyword and not prefix and not category:
-            score = 1  # list all if no filters
+            score = 1
 
         if score > 0:
             matches.append((score, s))
 
-    # sort by score descending
     matches.sort(key=lambda x: -x[0])
-    matches = matches[:40]  # cap output
+    matches = matches[:40]
 
-    # ── format output ──
     lines = [f"Found {len(matches)} matching NSE scripts:\n"]
 
-    # Group by category for readability
     vuln_scripts = []
     safe_scripts = []
     other_scripts = []
@@ -150,7 +129,6 @@ def _search_nse_execute(args: dict) -> dict:
         lines.append("\nOther scripts:")
         lines.extend(other_scripts)
 
-    # Add guidance
     lines.append("\nUsage hints:")
     lines.append("  - Use EXACT script name in the 'nmap' tool's script_name parameter")
     lines.append("  - Or use a CATEGORY as script_name: 'vuln', 'safe', 'discovery', 'auth', 'exploit'")
@@ -163,7 +141,6 @@ def _search_nse_execute(args: dict) -> dict:
     }
 
 
-# ── Register as a SEARCH tool ──
 nmap_script_search = register(Tool(
     name="nmap_script_search",
     description=(

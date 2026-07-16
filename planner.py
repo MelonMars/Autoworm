@@ -1,5 +1,6 @@
 from llm import request_llm, extract_json
 import json
+from tools.base import render_tool
 
 def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, phase, prior_failure, objective=None):
     prompts = json.load(open("prompts.json"))
@@ -11,9 +12,14 @@ def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, ph
     prompt = prompt.replace("{signals}", str(signals))
     prompt = prompt.replace("{unknowns}", str(unknowns))
     prompt = prompt.replace("{hypothesis}", str(hypothesis))
-    prompt = prompt.replace("{tools}", str(tools))
+    tools_str = "\n\n".join(render_tool(t) for t in tools)
+    prompt = prompt.replace("{tools}", tools_str)
     prompt = prompt.replace("{prior_failure}", str(prior_failure))
     prompt = prompt.replace("{objective}", str(objective))
+    prompt = prompt.replace("{host.ip}", str(host.ip))
+    prompt = prompt.replace("{host.os}", str(host.os))
+    prompt = prompt.replace("{host.services}", str(host.services))
+    prompt = prompt.replace("{host.vulnerabilities}", str(host.vulnerabilities))
 
     raw = request_llm(
             prompt,
@@ -22,7 +28,6 @@ def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, ph
             do_sample=False,
             max_new_tokens=2048
         )
-    print("Planner return raw: ", raw)
     try:
         data = extract_json(raw)
     except (ValueError, Exception):

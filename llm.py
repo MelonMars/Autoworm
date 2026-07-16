@@ -1,7 +1,3 @@
-import os
-# Must be set BEFORE torch is imported
-os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
 from functools import lru_cache
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import json
@@ -10,12 +6,14 @@ from typing import Optional
 import torch
 from transformers import BitsAndBytesConfig
 import warnings
+import re
+
 warnings.filterwarnings("ignore", category=FutureWarning, module="bitsandbytes")
 warnings.filterwarnings("ignore", message=".*_check_is_size.*")
 
 hf_token = "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"
-MODEL_ID = "prism-ml/Bonsai-27B-mlx-1bit"
-LOCAL_DIR = "./Bonsai-27B-mlx-1bit"
+MODEL_ID = "Qwen/Qwen3-4B"
+LOCAL_DIR = "./Qwen3-4B"
 
 MAX_INPUT_TOKENS = 4096
 MAX_TOTAL_TOKENS = 6144

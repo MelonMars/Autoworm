@@ -7,7 +7,7 @@ from hypothesizer import generate_hypotheses
 from progress import assess_progress
 from memory import Campaign, Host, build_working_memory
 from reflector import evaluate_action_progress
-from verify_foothold import verify_foothold, MSF_FOOTHOLD_TYPES
+from verify_foothold import verify_foothold
 import tools
 from tools.base import render_tools, filter_tools
 from tools.registry import REGISTRY
@@ -175,10 +175,7 @@ phase = "enum_host"
 
 def upload_to_host(host, local_path, remote_path):
     foothold_type = host.foothold.get("type")
-    if foothold_type in MSF_FOOTHOLD_TYPES:
-        print("[*] Skipping file upload — MSF session footholds use msf_sessions for file ops.")
-        return {"code": 0, "stdout": "skipped", "stderr": ""}
-
+    
     tool = REGISTRY["ssh_put"]
     f = host.foothold["details"]
     argv = tool.build_command({
