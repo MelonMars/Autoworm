@@ -77,6 +77,8 @@ Host IP: {host.ip}
                     "need": need, "have": current_privilege(), "args": args}, raw
 
         if tool.execute_fn is not None:
+            if "_host" in {p.name for p in tool.params}:
+                args["_host"] = host
             result = tool.execute_fn(args)
         else:
             result = run(tool.build_command(args))

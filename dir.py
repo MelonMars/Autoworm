@@ -3,7 +3,8 @@ import sys
 
 def get_py_files():
     out = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "*.py"],
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard",
+         "*.py", "*.json"],
         capture_output=True, text=True, check=True,
     )
     return sorted(f for f in out.stdout.splitlines() if f)

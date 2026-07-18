@@ -5,6 +5,8 @@ from tools.base import Tool, Param
 import base64
 
 def ssh_put_cmd(a: dict) -> list[str]:
+    local_path = a["local_path"]
+    remote_os = a["remote_os"].lower()
     if os.path.isdir(local_path):
         local_path = a["local_path"]
         remote_os = a["remote_os"].lower()

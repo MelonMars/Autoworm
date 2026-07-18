@@ -21,6 +21,7 @@ def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, ph
     prompt = prompt.replace("{host.services}", str(host.services))
     prompt = prompt.replace("{host.vulnerabilities}", str(host.vulnerabilities))
 
+    print(f"[*] Requesting llm")
     raw = request_llm(
             prompt,
             system=PLANNER_SYSTEM,
@@ -28,6 +29,7 @@ def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, ph
             do_sample=False,
             max_new_tokens=2048
         )
+    print(f"[*] LLM raw output: {raw}")
     try:
         data = extract_json(raw)
     except (ValueError, Exception):

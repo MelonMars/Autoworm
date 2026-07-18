@@ -484,28 +484,48 @@ def normalize_msf_output(tool, output, host):
     data.setdefault("confidence", 0.5)
     return data
 
-NORMALIZE_SYSTEM_EXPLOIT = """You analyze raw output from an EXPLOIT execution.
-Determine if a foothold was established, credentials obtained, or the exploit failed.
+NORMALIZE_SYSTEM_EXPLOIT = """You analyze raw output from an EXPLOIT EXECUTION TOOL and
+determine whether a foothold was actually established on the target.
+
+CRITICAL GUARDRAILS:
+- You are analyzing the OUTPUT of an exploit that was RUN against the target.
+- If the input is a search/index/listing of exploits (e.g. JSON array of
+  {id,title,path}), a CVE description, an advisory, a blog post, or a code
+  listing, you MUST set exploit_succeeded=false. Those are not exploit
+  executions.
+- "An exploit exists" != "an exploit succeeded". Only set
+  exploit_succeeded=true if the raw output contains concrete runtime
+  evidence such as:
+    * a session-opened banner from a framework ("Command shell session N opened")
+    * a known verification token echoed back from the target
+    * a shell prompt or command output (e.g. "uid=0(root)" appears AND
+      the tool actually connected to the target, not just described it)
+    * a successful HTTP response from an uploaded webshell
+    * explicit credential validation output ("Login Succeeded", "[+] SUCCESS")
+- If you are unsure whether the output came from an actual run, set
+  exploit_succeeded=false and explain in error_indicators.
 
 Schema:
 {
   "facts": {
     "exploit_succeeded": false,
-    "foothold_type": "",         // "ssh_key"|"meterpreter"|"msf_shell"|"webshell"|"reverse_shell"|null
-    "credentials": [],           // [{"user":"...","password":"...","source":"..."}]
-    "session_id": "",            // MSF session ID if applicable
+    "foothold_type": "",         // "ssh_key"|"meterpreter"|"msf_shell"|"webshell"|"bind_shell"|"reverse_shell"|null
+    "credentials": [],
+    "session_id": "",
+    "bind_port": null,           // port the target is now listening on (bind shell)
+    "callback_port": null,       // port we expected a callback on (reverse shell)
     "error_indicators": []
   },
-  "foothold_claims": [],         // [{"type":"...","details":{...}}]
+  "foothold_claims": [],         // populated ONLY when exploit_succeeded=true
   "vulnerabilities": {},
   "confidence": 0.0
 }
 
-Rules:
-- exploit_succeeded=true ONLY if output shows: session opened, shell access, command execution confirmed, or valid credentials returned.
-- For MSF: look for "[*] Command shell session N opened"
-- For default_creds: look for "[+ SUCCESS]"
-- For ssh key drops: look for key material or successful echo of verification token
+A foothold_claim MUST include concrete connection details:
+  {"type": "bind_shell",    "details": {"port": 6200, "host": "<target_ip>"}}
+  {"type": "reverse_shell", "details": {"callback_port": 4444, "host": "<local_ip>"}}
+  {"type": "ssh_key",       "details": {"user": "root", "key_path": "/tmp/id"}}
+  {"type": "meterpreter",   "details": {"session_id": "1"}}
 """
 
 def normalize_tool_output_exploit(tool, output, host):
@@ -525,41 +545,47 @@ def normalize_tool_output_exploit(tool, output, host):
     return data
 
 def normalize_tool_output(tool: Tool, output, host: Host, phase: str) -> dict:
-    if tool.category == "search":
+    cats = tool.category or []
+    if "search" in cats:
         if tool.name == "cve_search_api":
             return normalize_cve_response(output)
-        elif tool.name == "exploitdb_search":
+        if tool.name == "exploitdb_search":
             return normalize_searchsploit(output, tool, host)
-        else:
-            return normalize_tool_output_search(tool, output, host)
-            
+        return normalize_tool_output_search(tool, output, host)
+
     if phase == "validate_vuln":
         return normalize_tool_output_validate(tool, output, host)
-        
     if phase == "exploit_vuln":
         return normalize_tool_output_exploit(tool, output, host)
-        
     if tool.name == "http_request":
         return normalize_http_response(output, tool, host)
-    elif tool.name == "msf_module" or tool.name == "msfvenom":
+    if tool.name in ("msf_module", "msfvenom"):
         return normalize_msf_output(tool, output, host)
-        
     return normalize_tool_output_search(tool, output, host)
 
-def check_opportunity(normalized_result: dict, host: Host) -> dict | None:
+
+FOOTHOLD_CAPABLE_CATEGORIES = {"foothold", "exploit"}
+def check_opportunity(normalized_result: dict, host: Host, tool: "Tool | None" = None) -> dict | None:
     if not normalized_result.get("ok", True):
         return None
 
-    claims = normalized_result.get("foothold_claims", [])
-    if claims:
-        return {"type": "claim", "data": claims[0]}
+    if tool is not None:
+        cats = set(tool.category or [])
+        if not (cats & FOOTHOLD_CAPABLE_CATEGORIES):
+            return None
 
-    facts = normalized_result.get("facts", {})
+    claims = normalized_result.get("foothold_claims", [])
+    facts  = normalized_result.get("facts", {}) or {}
+
+    if claims:
+        if not (facts.get("exploit_succeeded") or facts.get("session_id")):
+            return None
+        claim = claims[0]
+        if not claim.get("details"):
+            return None
+        return {"type": "claim", "data": claim}
+
     if "ssh_private_key" in facts or "password" in facts:
-        return {
-            "type": "inferred_ssh", 
-            "data": {"type": "ssh_key", "details": facts}
-        }
+        return {"type": "inferred_ssh", "data": {"type": "ssh_key", "details": facts}}
 
     return None
-

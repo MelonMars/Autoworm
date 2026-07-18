@@ -1,103 +1,82 @@
 from functools import lru_cache
-from transformers import AutoTokenizer, AutoModelForCausalLM
 import json
-from pydantic import BaseModel, Field
-from typing import Optional
-import torch
-from transformers import BitsAndBytesConfig
-import warnings
 import re
 
-warnings.filterwarnings("ignore", category=FutureWarning, module="bitsandbytes")
-warnings.filterwarnings("ignore", message=".*_check_is_size.*")
+from llama_cpp import Llama
 
-hf_token = "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"
-MODEL_ID = "Qwen/Qwen3-4B"
-LOCAL_DIR = "./Qwen3-4B"
+MODEL_PATH = "./models/Qwen3-4B-Q5_K_M.gguf"
 
-MAX_INPUT_TOKENS = 4096
+N_CTX = 8192
 MAX_TOTAL_TOKENS = 6144
+
+_ALLOWED_GEN_KWARGS = {
+    "do_sample", "temperature", "top_p", "top_k",
+    "repetition_penalty", "no_repeat_ngram_size",
+}
+
 
 @lru_cache(maxsize=1)
 def _get_model():
-    tokenizer = AutoTokenizer.from_pretrained(LOCAL_DIR)
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
-
-    model = AutoModelForCausalLM.from_pretrained(
-        LOCAL_DIR,
-        device_map="auto",
-        torch_dtype=torch.float16,
-        quantization_config=BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.float16,
-            bnb_4bit_quant_type="nf4", 
-            bnb_4bit_use_double_quant=True,
-        ),
+    llm = Llama(
+        model_path=MODEL_PATH,
+        n_ctx=N_CTX,
+        n_gpu_layers=-1,
+        n_batch=512,
+        verbose=False,
     )
-    model.eval()
-    return tokenizer, model
+    return llm
+
+
+def _build_sampling(gen_kwargs):
+    src = {k: v for k, v in gen_kwargs.items() if k in _ALLOWED_GEN_KWARGS}
+
+    params = {}
+    if src.get("do_sample", False):
+        if "temperature" in src:
+            params["temperature"] = src["temperature"]
+        if "top_p" in src:
+            params["top_p"] = src["top_p"]
+        if "top_k" in src:
+            params["top_k"] = src["top_k"]
+    else:
+        params["temperature"] = 0.0
+
+    if "repetition_penalty" in src:
+        params["repeat_penalty"] = src["repetition_penalty"]
+
+    return params
 
 
 def request_llm(prompt, system, max_new_tokens=1024, enable_thinking=True,
                 schema=None, **gen_kwargs):
-    tokenizer, model = _get_model()
+    llm = _get_model()
+
+    user_content = (
+        prompt
+        + "First, write your reasoning inside <thought> tags.\n"
+        + "Then, output the required JSON inside <json> tags."
+    )
+    if not enable_thinking:
+        user_content += " /no_think"
 
     messages = [
         {"role": "system", "content": system},
-        {"role": "user", "content": prompt +
-            "First, write your reasoning inside <thought> tags.\n"
-            "Then, output the required JSON inside <json> tags."},
+        {"role": "user", "content": user_content},
     ]
 
-    inputs = tokenizer.apply_chat_template(
-        messages,
-        add_generation_prompt=True,
-        enable_thinking=enable_thinking,
-        return_tensors="pt",
-        return_dict=True,
-        truncation=True,
-        max_length=MAX_INPUT_TOKENS,
+    max_tokens = min(max_new_tokens, MAX_TOTAL_TOKENS)
+
+    out = llm.create_chat_completion(
+        messages=messages,
+        max_tokens=max_tokens,
+        **_build_sampling(gen_kwargs),
     )
 
-    device = next(model.parameters()).device
-    inputs = {k: v.to(device) for k, v in inputs.items()}
+    result = out["choices"][0]["message"]["content"].strip()
 
-    ALLOWED_GEN_KWARGS = {
-        "do_sample", "temperature", "top_p", "top_k",
-        "repetition_penalty", "no_repeat_ngram_size",
-    }
-    gen = {k: v for k, v in gen_kwargs.items() if k in ALLOWED_GEN_KWARGS}
-    gen.setdefault("do_sample", False)
-    gen["pad_token_id"] = tokenizer.pad_token_id
-
-    input_len = inputs["input_ids"].shape[-1]
-    max_new = min(max_new_tokens, MAX_TOTAL_TOKENS - input_len)
-    if max_new <= 0:
-        raise ValueError(f"Input ({input_len} tokens) exceeds MAX_TOTAL_TOKENS ({MAX_TOTAL_TOKENS})")
-
-    torch.cuda.empty_cache()
-
-    with torch.inference_mode():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=max_new,
-            use_cache=True,
-            **gen,
-        )
-
-    new_tokens = outputs[0][input_len:]
-
-    close_id = tokenizer.convert_tokens_to_ids("</think>")
-    if close_id is not None and close_id != tokenizer.unk_token_id:
-        idx = (new_tokens == close_id).nonzero().flatten()
-        if len(idx):
-            new_tokens = new_tokens[idx[-1] + 1:]
-
-    result = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
-
-    del outputs, new_tokens
-    torch.cuda.empty_cache()
+    close = result.rfind("</think>")
+    if close != -1:
+        result = result[close + len("</think>"):].strip()
 
     return result
 
@@ -112,3 +91,9 @@ def extract_json(text):
     if start == -1 or end == -1:
         raise ValueError(f"No JSON object in: {text!r}")
     return json.loads(text[start:end + 1])
+
+if __name__ == "__main__":
+    prompt = "What is the capital of France?"
+    system = "You are a helpful assistant."
+    response = request_llm(prompt, system)
+    print(f"LLM Response: {response}")
