@@ -89,7 +89,6 @@ def execute_default_creds(args: dict) -> dict:
             findings.append(f"{status} {user}:{passwd} on {service_type} - {msg}")
 
             if success:
-                # Stop on first success to save time and context window
                 return {"code": 0, "stdout": "\n".join(findings), "stderr": ""}
 
     return {"code": 0, "stdout": "\n".join(findings), "stderr": "No valid default credentials found."}

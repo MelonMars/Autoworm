@@ -27,8 +27,10 @@ def sanity_check_args(args: dict, tool, host: Host) -> str | None:
         return f"Sanity Check Failed: target_ip {args['target_ip']} does not match host IP {host.ip}."
     
     for key, val in args.items():
-        if isinstance(val, str) and val.strip() == "" and key in tool.required_args:
-            return f"Sanity Check Failed: Required argument '{key}' is empty."
-            
+        try:
+            if isinstance(val, str) and val.strip() == "" and key in tool.required_args:
+                return f"Sanity Check Failed: Required argument '{key}' is empty."
+        except Exception as e:
+            return None
     return None
 

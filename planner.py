@@ -1,8 +1,11 @@
 from llm import request_llm, extract_json
 import json
+import logging
 from tools.base import render_tool
 
-def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, phase, prior_failure, objective=None):
+logger = logging.getLogger(__name__)
+
+def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, phase, prior_failure, objective=None, strategy_directive=None):
     prompts = json.load(open("prompts.json"))
     PLANNER_SYSTEM = prompts[phase]["Planner"]["System"]
 
@@ -20,8 +23,11 @@ def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, ph
     prompt = prompt.replace("{host.os}", str(host.os))
     prompt = prompt.replace("{host.services}", str(host.services))
     prompt = prompt.replace("{host.vulnerabilities}", str(host.vulnerabilities))
+    prompt = prompt.replace("{strategy_directive}", str(strategy_directive or ""))
 
-    print(f"[*] Requesting llm")
+    logger.info(f"Requesting plan from LLM for phase: {phase}")
+    logger.debug(f"Planner Prompt:\n{prompt}")
+    
     raw = request_llm(
             prompt,
             system=PLANNER_SYSTEM,
@@ -29,11 +35,15 @@ def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, ph
             do_sample=False,
             max_new_tokens=2048
         )
-    print(f"[*] LLM raw output: {raw}")
+        
+    logger.debug(f"LLM raw output:\n{raw}")
+    
     try:
         data = extract_json(raw)
     except (ValueError, Exception):
+        logger.error("Failed to extract JSON from planner output.")
         return {"Next Actions": [], "_raw": raw}
 
     data.setdefault("Next Actions", [])
+    logger.info(f"Planner generated {len(data['Next Actions'])} actions.")
     return data

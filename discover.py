@@ -10,6 +10,7 @@ from tool_normalizer import check_opportunity, normalize_tool_output_search
 from tools.base import filter_tools, render_tools, filter_tools
 from tools.registry import REGISTRY
 from utils import apply_update, merge, sanity_check_args
+from service_validator import validate_services
 
 def deterministic_cve_scan(host):
     print("\n[*] === Deterministic CVE Scan (NVD) ===")
@@ -141,6 +142,7 @@ def run_discovery_phase(host: Host, campaign: Campaign):
         return status
 
     print("\n[*] Deep Recon complete. Generating Hypotheses...")
+    validate_services(host)
     deterministic_cve_scan(host)
 
     final_analysis = analyze(host, campaign.graph)

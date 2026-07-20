@@ -19,7 +19,7 @@ def evaluate_action_progress(host, last_result, remaining_actions, phase):
         system=prompts[phase]["Reflector"]["System"], 
         enable_thinking=False, 
         do_sample=False, 
-        max_new_tokens=256
+        max_new_tokens=1024
     )
     
     try:

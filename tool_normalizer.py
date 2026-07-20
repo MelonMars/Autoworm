@@ -1,11 +1,14 @@
 import json
 import re
+import logging
 
 from llm import request_llm, extract_json
 from memory import Host
 from tools.base import Tool
 from pydantic import BaseModel, Field
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 class Service(BaseModel):
     name: Optional[str] = None
@@ -26,45 +29,35 @@ class NormalizeResult(BaseModel):
 def sanitize_normalizer_output(raw_data: dict) -> dict:
     if not isinstance(raw_data, dict):
         return raw_data
-
     facts = raw_data.get("facts", {})
     if not isinstance(facts, dict):
         facts = {}
         raw_data["facts"] = facts
-
     if "services" in facts and isinstance(facts["services"], dict):
         top_level_services = raw_data.get("services", {})
         if not isinstance(top_level_services, dict):
             top_level_services = {}
         top_level_services.update(facts.pop("services"))
         raw_data["services"] = top_level_services
-
     services = raw_data.get("services", {})
     if isinstance(services, dict):
         for key in ["os", "hostname", "ip"]:
             if key in services:
                 facts[key] = services.pop(key)
-
     return raw_data
 
 def truncate_raw_output_for_llm(raw_output_str: str, max_length=1500) -> str:
     if len(raw_output_str) <= max_length:
         return raw_output_str
-        
     body_pattern = r'("body"\s*:\s*")(.+?)("(?:\s*[,}]))'
     match = re.search(body_pattern, raw_output_str, re.DOTALL)
-    
     if match:
         full_body = match.group(2)
         if len(full_body) > 300:
             truncated_body = full_body[:300] + "... [TRUNCATED_BY_ORCHESTRATOR]"
-            raw_output_str = (raw_output_str[:match.start(2)] + 
-                              truncated_body + 
-                              raw_output_str[match.end(2):])
-            
+            raw_output_str = (raw_output_str[:match.start(2)] + truncated_body + raw_output_str[match.end(2):])
     if len(raw_output_str) > max_length:
         raw_output_str = raw_output_str[:max_length] + "\n... [OUTPUT TRUNCATED] "
-        
     return raw_output_str
 
 NORMALIZE_SYSTEM_SEARCH = """You convert raw security tool output into ONE JSON object.
@@ -72,34 +65,19 @@ Output only the JSON. No prose, no markdown fences. Do not repeat the host infor
 
 Schema:
 {
-  "facts": {},        // structured data extracted from the output; lowercase keys; null for unknown values
-  "services": {       // if the output mentions a service, list it here with details
+  "facts": {},        
+  "services": {       
         "port": {"name": "...", "version": "...", "more_info": "..."},
         "port2": {"name": "...", "version": "...", "more_info": "..."},
         ...
     },
-  "new_edges": [],    // relationships, e.g. {"from": "host", "to": "ssh", "type": "runs_service"}
-  "confidence": 0.0   // float 0-1: how complete/correct this extraction is
-}
-
-Example:
-{
-  "facts": {
-
-  },
-  "services": {
-      "22": {"name": "ssh", "version": "8.2"},
-      "80": {"name": "http", "version": "Apache/2.4.41"}
-  },
-  "new_edges": [
-    {"from": "host", "to": "ssh", "type": "runs_service"}
-  ],
-  "confidence": 0.87
+  "new_edges": [],    
+  "confidence": 0.0   
 }
 
 Make sure new_edges is not inside of facts.
 
-If the output is an error or empty, return empty facts, empty new_edges, and low confidence. The allowable keys for facts are services, vulnerabilities, os, hostname, and any other relevant information. The values should be structured as dictionaries or lists as appropriate."""
+If the output is an error or empty, return empty facts, empty new_edges, and low confidence."""
 
 def normalize_tool_output_search(tool: Tool, output: str, host: Host):
     safe_output_str = truncate_raw_output_for_llm(output, max_length=1500)
@@ -108,7 +86,10 @@ Tool: {tool.name}
 Description: {tool.description}
 Current host info: {host.render()}
 Raw Output: {safe_output_str}"""
-    print("Normalizing tool output with prompt:", prompt)
+    
+    logger.info(f"Normalizing output for {tool.name}...")
+    logger.debug(f"Normalization prompt:\n{prompt}")
+    
     raw = request_llm(
             prompt,
             system=NORMALIZE_SYSTEM_SEARCH,
@@ -117,12 +98,11 @@ Raw Output: {safe_output_str}"""
             do_sample=False,
             max_new_tokens=2048
         )
-    
-    print("Normalizer LLM output:", raw)
 
     try:
         data = extract_json(raw)
     except (ValueError, json.JSONDecodeError):
+        logger.error(f"Failed to parse normalizer output for {tool.name}. Raw: {raw[:200]}")
         return {"facts": {}, "new_edges": [], "confidence": 0.0, "services": {}, "_raw": raw}
 
     data = sanitize_normalizer_output(data)
@@ -131,8 +111,7 @@ Raw Output: {safe_output_str}"""
     data.setdefault("confidence", 0.0)
     data.setdefault("services", {})
 
-    print("Sanitized normalizer output:", data)
-
+    logger.debug(f"Sanitized normalizer output: {data}")
     return data
 
 NORMALIZE_SYSTEM_SEARCHSPLOIT = """You convert raw searchsploit output into ONE JSON object.
@@ -170,32 +149,36 @@ def normalize_searchsploit(output, tool: Tool, host: Host) -> dict:
     except (json.JSONDecodeError, TypeError):
         return {"facts": {}, "new_edges": [], "vulnerabilities": {}, "confidence": 0.0}
 
-    vulns = {}
-    unmatched = []
+    vulns = {
+        "_unmatched": {"exploits": []}
+    }
     
     for exp in exploits_list:
         edb_id = str(exp.get("id", "")).strip()
         title = exp.get("title", "")
         path = exp.get("path", "")
         exp_type = exp.get("type", "")
+        codes = exp.get("codes", "")
         
-        entry = {"id": edb_id, "title": title, "path": path, "type": exp_type}
+        entry = {"id": edb_id, "title": title, "path": path, "type": exp_type, "codes": codes}
         
-        cve_match = re.search(r'CVE-\d{4}-\d{4,7}', title, re.IGNORECASE)
+        cve_haystack = f"{title} {codes} {path}"
+        cve_matches = re.findall(r'CVE-\d{4}-\d{4,7}', cve_haystack, re.IGNORECASE)
         
-        if cve_match:
-            cve_id = cve_match.group(0).upper()
-            if cve_id not in vulns:
-                vulns[cve_id] = {"exploits": []}
-            vulns[cve_id]["exploits"].append(entry)
+        cve_ids = list(dict.fromkeys([c.upper() for c in cve_matches]))
+        
+        if cve_ids:
+            for cve_id in cve_ids:
+                if cve_id not in vulns:
+                    vulns[cve_id] = {"exploits": []}
+                vulns[cve_id]["exploits"].append(entry)
         else:
-            unmatched.append(entry)
+            vulns["_unmatched"]["exploits"].append(entry)
             
     return {
         "facts": {},
         "new_edges": [],
         "vulnerabilities": vulns,
-        "unmatched_exploits": unmatched,
         "confidence": 1.0 if exploits_list else 0.0
     }
 

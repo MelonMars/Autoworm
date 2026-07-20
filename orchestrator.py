@@ -16,12 +16,22 @@ import os, pickle
 from utils import merge, apply_update, sanity_check_args
 import hashlib
 from validate_exploit import run_vuln_validation_and_exploit
-
-import warnings
-warnings.filterwarnings("ignore", category=FutureWarning, module="bitsandbytes")
-warnings.filterwarnings("ignore", message=".*_check_is_size.*")
 import requests
 import time
+
+import logging
+import warnings
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)-5s] [%(name)-10s] %(message)s",
+    datefmt="%H:%M:%S"
+)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+warnings.filterwarnings("ignore", category=FutureWarning, module="bitsandbytes")
+warnings.filterwarnings("ignore", message=".*_check_is_size.*")
 
 NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 _cve_cache = {}

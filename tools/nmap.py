@@ -1,5 +1,3 @@
-# tools/nmap_exploit.py
-
 import os
 import requests
 import subprocess
@@ -49,10 +47,8 @@ def _nmap_exploit_execute(args: dict) -> dict:
     ports = args.get("ports", "1-1000")
 
     if _is_category(script_query):
-        # ── Category: use nmap's built-in resolution, no download needed ──
         cmd = ["nmap", "--script", script_query, "-p", ports]
     else:
-        # ── Specific script: download it, reference by full path ──
         ok, msg = _download_nse_script(script_query)
         if not ok:
             return {"code": 1, "stdout": "", "stderr": msg}
@@ -98,7 +94,7 @@ nmap_exploit = register(Tool(
         Param("ports", "string", "Ports to scan (default '1-1000')", required=False),
     ],
     execute_fn=_nmap_exploit_execute,
-    category=["foothold"],
+    category=["foothold", "recon"],
     examples=[
         "Run all vuln scripts against 192.168.1.5 on port 445: script_name='vuln', ports='445'",
         "Run all safe discovery scripts on SSH: script_name='safe', ports='22'",
