@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, phase, prior_failure, objective=None, strategy_directive=None):
     prompts = json.load(open("prompts.json"))
+    print(f"[*] Planning next actions for phase: {phase}")
     PLANNER_SYSTEM = prompts[phase]["Planner"]["System"]
 
     prompt = prompts[phase]["Planner"]["Prompt"]

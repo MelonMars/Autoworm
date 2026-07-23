@@ -6,7 +6,7 @@ def assess_progress(hypotheses, unknowns, term_result, phase, objective=None):
     PROGRESS_SYSTEM = prompts[phase]["Progress"]["System"]
     prompt = prompts[phase]["Progress"]["Prompt"].format(hypotheses=hypotheses, unknowns=unknowns, term_result=term_result, objective=objective)
     raw = request_llm(prompt, system=PROGRESS_SYSTEM,
-                      enable_thinking=False, do_sample=False, max_new_tokens=256)
+                      enable_thinking=False, do_sample=False, max_new_tokens=1024)
     try:
         data = extract_json(raw)
     except (ValueError, Exception):

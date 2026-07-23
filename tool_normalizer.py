@@ -30,9 +30,11 @@ def sanitize_normalizer_output(raw_data: dict) -> dict:
     if not isinstance(raw_data, dict):
         return raw_data
     facts = raw_data.get("facts", {})
-    if not isinstance(facts, dict):
-        facts = {}
-        raw_data["facts"] = facts
+    services = raw_data.setdefault("services", {})
+    if isinstance(facts, dict) and isinstance(services, dict):
+        for k in list(facts.keys()):
+            if str(k).isdigit() and isinstance(facts[k], dict):
+                services[str(k)] = facts.pop(k)
     if "services" in facts and isinstance(facts["services"], dict):
         top_level_services = raw_data.get("services", {})
         if not isinstance(top_level_services, dict):

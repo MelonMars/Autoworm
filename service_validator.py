@@ -68,7 +68,7 @@ def validate_services(host) -> dict:
         if not isinstance(svc, dict):
             continue
             
-        port_int = int(port)
+        port_int = int(''.join(c for c in port if c.isdigit()))
         services_to_check[port] = svc
         
         print(f"  [{port}] Connecting to grab raw banner...")

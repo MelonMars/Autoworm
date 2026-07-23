@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_PATH = "./models/Qwen3-4B-Q5_K_M.gguf"
 
-N_CTX = 8192
+N_CTX = 16384
 MAX_TOTAL_TOKENS = 6144
 
 _ALLOWED_GEN_KWARGS = {

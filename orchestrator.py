@@ -296,6 +296,8 @@ if current_phase == "pre_discovery":
 
 
 if current_phase == "post_discovery":
+    print(test_host.facts)
+    print(test_host.services)
     print("\n" + "="*50)
     print("STAGE: VALIDATION & EXPLOIT")
     print("="*50)

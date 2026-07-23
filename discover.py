@@ -124,6 +124,7 @@ def run_discovery_phase(host: Host, campaign: Campaign):
     print("[*] ========================================")
 
     light_tools = filter_tools(REGISTRY, "recon")
+    print("Tools available for light recon:", light_tools)
     status = run_discovery_subphase(host, campaign, "enum_host_light", light_tools, max_actions=5)
     
     if status == "opportunistic_foothold":

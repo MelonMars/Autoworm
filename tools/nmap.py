@@ -42,7 +42,7 @@ def _download_nse_script(script_name: str) -> tuple[bool, str]:
 
 def _nmap_exploit_execute(args: dict) -> dict:
     target = args["target_ip"]
-    script_query = args["script_name"]       # can be category OR script name
+    script_query = args["script_name"]
     script_args = args.get("script_args", "")
     ports = args.get("ports", "1-1000")
 
@@ -94,7 +94,7 @@ nmap_exploit = register(Tool(
         Param("ports", "string", "Ports to scan (default '1-1000')", required=False),
     ],
     execute_fn=_nmap_exploit_execute,
-    category=["foothold", "recon"],
+    category=["foothold"],
     examples=[
         "Run all vuln scripts against 192.168.1.5 on port 445: script_name='vuln', ports='445'",
         "Run all safe discovery scripts on SSH: script_name='safe', ports='22'",
