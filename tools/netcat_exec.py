@@ -18,6 +18,7 @@ def _netcat_exec(args: dict) -> dict:
             
             response = b""
             try:
+                s.settimeout(3)
                 while True:
                     chunk = s.recv(4096)
                     if not chunk:

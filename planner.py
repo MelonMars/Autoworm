@@ -5,10 +5,43 @@ from tools.base import render_tool
 
 logger = logging.getLogger(__name__)
 
-def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, phase, prior_failure, objective=None, strategy_directive=None):
+STRATEGIST_SYSTEM = """You are a high-level penetration test strategist. 
+Given the target host state and the current phase, generate a brief, high-level step-by-step strategy. 
+Do not specify exact tools or arguments. Just list the logical steps to achieve the phase goal.
+Output ONLY JSON: {"strategy": ["step 1", "step 2", "step 3"]}
+"""
+def generate_strategy(host, phase, hypothesis=None):
     prompts = json.load(open("prompts.json"))
-    print(f"[*] Planning next actions for phase: {phase}")
+    prompt = f"""
+Phase: {phase}
+Host IP: {host.ip}
+OS: {host.os}
+Services: {host.services}
+Known Vulnerabilities: {host.vulnerabilities}
+Current Hypothesis (if any): {hypothesis}
+"""
+    raw = request_llm(prompt, system=STRATEGIST_SYSTEM, enable_thinking=False, max_new_tokens=2048)
+    try:
+        data = extract_json(raw)
+        return data.get("strategy", [])
+    except Exception:
+        return []
+
+def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, phase, prior_failure, objective=None, strategy_directive=None, plan_mode="sequential", overarching_strategy=None, cve_context=None):
+    prompts = json.load(open("prompts.json"))
+    print(f"[*] Planning next actions for phase: {phase} (Mode: {plan_mode})")
+    
     PLANNER_SYSTEM = prompts[phase]["Planner"]["System"]
+
+    if plan_mode == "single":
+        mode_instruction = "IMPORTANT: Generate EXACTLY ONE next action to take based on the current state. Do not generate a list."
+    else:
+        mode_instruction = "Generate a sequential list of next actions to take."
+
+    PLANNER_SYSTEM += f"\n\nPLAN MODE INSTRUCTION: {mode_instruction}"
+
+    if overarching_strategy:
+        PLANNER_SYSTEM += f"\n\nOVERARCHING STRATEGY TO FOLLOW:\n{json.dumps(overarching_strategy)}"
 
     prompt = prompts[phase]["Planner"]["Prompt"]
     prompt = prompt.replace("{host}", str(host))
@@ -25,10 +58,8 @@ def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, ph
     prompt = prompt.replace("{host.services}", str(host.services))
     prompt = prompt.replace("{host.vulnerabilities}", str(host.vulnerabilities))
     prompt = prompt.replace("{strategy_directive}", str(strategy_directive or ""))
+    prompt = prompt.replace("{cve_context}", str(cve_context or "No context provided."))
 
-    logger.info(f"Requesting plan from LLM for phase: {phase}")
-    logger.debug(f"Planner Prompt:\n{prompt}")
-    
     raw = request_llm(
             prompt,
             system=PLANNER_SYSTEM,
@@ -37,14 +68,13 @@ def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, ph
             max_new_tokens=2048
         )
         
-    logger.debug(f"LLM raw output:\n{raw}")
-    
     try:
         data = extract_json(raw)
     except (ValueError, Exception):
-        logger.error("Failed to extract JSON from planner output.")
         return {"Next Actions": [], "_raw": raw}
 
+    if plan_mode == "single" and len(data.get("Next Actions", [])) > 1:
+        data["Next Actions"] = [data["Next Actions"][0]]
+
     data.setdefault("Next Actions", [])
-    logger.info(f"Planner generated {len(data['Next Actions'])} actions.")
     return data

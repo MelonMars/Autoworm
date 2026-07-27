@@ -39,22 +39,22 @@ def _web_search_execute(args: dict) -> dict:
         return {"cmd": f"web_search:{query}",
                 "code": 1, "stdout": "", "stderr": str(exc)}
 
-web_search = register(Tool(
-    name="web_search",
-    description=(
-        "Search the web via DuckDuckGo for security research. Use this to find: "
-        "CVE details and proof-of-concept exploits, default credentials for specific software, "
-        "known misconfigurations or logic flaws, exploit write-ups and walkthroughs, "
-        "and version-specific vulnerability advisories. "
-        "Always prefer specific queries over generic ones."
-    ),
-    params=[
-        Param("query", "string",
-              "Search query — be specific: include software name, version, and vulnerability type."),
-        Param("max_results", "integer",
-              "Maximum number of results to return (1-20).",
-              required=False),
-    ],
-    execute_fn=_web_search_execute,
-    category=["search"],
-))
+# web_search = register(Tool(
+#     name="web_search",
+#     description=(
+#         "Search the web via DuckDuckGo for security research. Use this to find: "
+#         "CVE details and proof-of-concept exploits, default credentials for specific software, "
+#         "known misconfigurations or logic flaws, exploit write-ups and walkthroughs, "
+#         "and version-specific vulnerability advisories. "
+#         "Always prefer specific queries over generic ones."
+#     ),
+#     params=[
+#         Param("query", "string",
+#               "Search query — be specific: include software name, version, and vulnerability type."),
+#         Param("max_results", "integer",
+#               "Maximum number of results to return (1-20).",
+#               required=False),
+#     ],
+#     execute_fn=_web_search_execute,
+#     category=["search"],
+# ))

@@ -44,3 +44,28 @@ def sanity_check_args(args: dict, tool, host: Host) -> str | None:
             return None
     return None
 
+def build_isolated_context(host: Host, hypothesis: dict) -> dict:
+    isolated_facts = {}
+    isolated_services = {}
+    
+    hyp_text = hypothesis.get("description", "") + " " + " ".join(hypothesis.get("evidence", []))
+    
+    for port, svc in host.services.items():
+        if port in hyp_text or (isinstance(svc, dict) and svc.get("name", "") in hyp_text):
+            isolated_services[port] = svc
+            
+    if not isolated_services:
+        isolated_services = host.services
+        
+    for k, v in host.facts.items():
+        if k in ["os", "hostname", "ip"] or any(word in str(k) for word in hyp_text.split()):
+            isolated_facts[k] = v
+
+    return {
+        "ip": host.ip,
+        "os": host.os,
+        "hostname": host.hostname,
+        "services": isolated_services,
+        "facts": isolated_facts,
+        "vulnerabilities": host.vulnerabilities
+    }

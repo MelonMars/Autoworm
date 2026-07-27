@@ -5,6 +5,7 @@ from researcher import run_research
 from tools.nmap import _is_category
 from validate_args import validate_args
 from tools.nmap_script_search import _fetch_script_db
+import json
 
 EXECUTOR_SYSTEM = """You are an executor for an agent. Your job is to execute a given action using a specified tool on a target host. Make sure you don't execute any commands that require higher privileges than you currently have.
 
@@ -24,9 +25,10 @@ Example Output:
 }
 """
 
-def execute_action(action, tool, host, search_tools=None, search_tool_objects=None, max_retries=2, max_search_steps=5):
+def execute_action(action, tool, host, search_tools=None, search_tool_objects=None, max_retries=2, planned_args=None, max_search_steps=5):
     # action, exec_tool, host, search_tools, max_steps=5
-    if search_tools and "search" not in (tool.category or []):
+    PRIMITIVE_TOOLS = ["netcat_exec", "ssh_exec", "ssh_put", "http_request", "exploit_exec"]
+    if search_tools and tool.name not in PRIMITIVE_TOOLS and "search" not in (tool.category or []):
         findings = run_research(action, tool, host, search_tools=search_tools, search_tool_objects=search_tool_objects, max_steps=max_search_steps)
     else:
         findings = ""
@@ -48,6 +50,8 @@ Hostname: {host.hostname}
 Host IP: {host.ip}
 """
 
+        if planned_args:
+            prompt += f"\nThe planner already determined these arguments. Use them exactly unless they are invalid:\n{json.dumps(planned_args)}\n"
         if findings:
             prompt += f"\nRelevant findings from research:\n{findings}\n"
             
@@ -56,7 +60,7 @@ Host IP: {host.ip}
             for a in attempts:
                 prompt += f"- args {a['args']} -> {a['error']}\n"
 
-        max_new_tokens = 1024
+        max_new_tokens = 4096
 
         raw = request_llm(prompt, system=EXECUTOR_SYSTEM,
                           enable_thinking=False, do_sample=False, max_new_tokens=max_new_tokens)

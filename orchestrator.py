@@ -279,7 +279,7 @@ if current_phase == "pre_discovery":
     print("STAGE: DISCOVERY")
     print("="*50)
     
-    discovery_status = run_discovery_phase(test_host, campaign)
+    discovery_status = run_discovery_phase(test_host, campaign, plan_mode="single")
     
     if discovery_status == "opportunistic_foothold":
         if verify_foothold(test_host):
