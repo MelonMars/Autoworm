@@ -32,16 +32,25 @@ def apply_update(host, update, campaign):
     if "vulnerabilities" in update:
         merge(host.vulnerabilities, update["vulnerabilities"])
 
+    if "os" in host.facts and not host.os:
+        host.os = host.facts["os"]
+    if "hostname" in host.facts and not host.hostname:
+        host.hostname = host.facts["hostname"]
+
 def sanity_check_args(args: dict, tool, host: Host) -> str | None:
     if "target_ip" in args and args["target_ip"] != host.ip:
         return f"Sanity Check Failed: target_ip {args['target_ip']} does not match host IP {host.ip}."
     
+    if tool.name == "http_request":
+        url = args.get("url")
+        if url and not url.startswith(("http://", "https://")):
+            return f"Sanity Check Failed: http_request URL must start with http:// or https://. Got: {url}"
+    
+    required_args = {p.name for p in tool.params if p.required}
     for key, val in args.items():
-        try:
-            if isinstance(val, str) and val.strip() == "" and key in tool.required_args:
-                return f"Sanity Check Failed: Required argument '{key}' is empty."
-        except Exception as e:
-            return None
+        if isinstance(val, str) and val.strip() == "" and key in required_args:
+            return f"Sanity Check Failed: Required argument '{key}' is empty."
+            
     return None
 
 def build_isolated_context(host: Host, hypothesis: dict) -> dict:

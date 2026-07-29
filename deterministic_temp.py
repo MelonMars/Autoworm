@@ -5,8 +5,6 @@ from utils import merge
 NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 _cve_cache = {}
 
-GENERIC_PRODUCTS = {"http", "https", "tcp", "udp", "linux", "unix", "os", "shell", "openssl", "rpc"}
-
 def _extract_cvss(cve_data):
     metrics = cve_data.get("metrics", {})
     for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
@@ -21,16 +19,7 @@ def _extract_cvss(cve_data):
             }
     return {}
 
-def _has_exploit(cve_data):
-    """Check if the CVE has known public exploits or Metasploit modules."""
-    for r in cve_data.get("references", []):
-        url = r.get("url", "").lower()
-        tags = r.get("tags", [])
-        if "exploit" in tags or "exploit-db" in url or "metasploit" in url or "packetstorm" in url:
-            return True
-    return False
-
-def _parse_nvd_response(data, service):
+def _parse_nvd_response(data, service, product_filter=None):
     cves = []
     for vuln in data.get("vulnerabilities", []):
         cve_data = vuln["cve"]
@@ -39,59 +28,65 @@ def _parse_nvd_response(data, service):
             "",
         )
 
+        if product_filter:
+            haystack = (desc + str(cve_data.get("configurations", []))).lower()
+            if product_filter.lower() not in haystack:
+                continue
+
         refs = cve_data.get("references", [])
         weaknesses = [
             w.get("description", [{}])[0].get("value", "")
             for w in cve_data.get("weaknesses", [])
         ]
 
-        exploit_available = _has_exploit(cve_data)
-
         cves.append({
             "id": cve_data["id"],
-            "description": desc[:300],
+            "description": desc[:500],
             "cvss": _extract_cvss(cve_data),
             "cwe_ids": weaknesses,
-            "exploit_available": exploit_available,
-            "references": [r["url"] for r in refs[:5]],
+            "exploit_available": any(
+                "exploit" in r.get("url", "").lower() for r in refs
+            ),
+            "references": [r["url"] for r in refs[:10]],
             "source": "nvd",
             "matched_service": service.get("name"),
             "matched_product": service.get("product") or service.get("name"),
             "matched_version": service.get("version"),
         })
 
-    cves.sort(key=lambda c: (c["exploit_available"], c["cvss"].get("score", 0)), reverse=True)
+    cves.sort(key=lambda c: c["cvss"].get("score", 0), reverse=True)
     return cves
+
+GENERIC_PRODUCTS = {"http", "https", "tcp", "udp", "linux", "unix", "os", "shell"}
 
 def lookup_cves_for_service(service, timeout=20):
     product = service.get("product") or service.get("name")
     version = service.get("version", "")
     vendor = service.get("vendor", "")
-    cpe = service.get("cpe", "")
     
     if not product or not version or str(product).lower() in GENERIC_PRODUCTS:
         return []
     
-    if cpe:
-        cache_key = cpe.lower()
-        params = {"cpeName": cpe}
-    else:
-        cache_key = f"{vendor}:{product}:{version}".lower()
-        params = {"keywordSearch": f"{product} {version}"}
-
+    cache_key = f"{vendor}:{product}:{version}".lower()
     if cache_key in _cve_cache:
         return _cve_cache[cache_key]
     
     cves = []
     try:
-        resp = requests.get(NVD_API_URL, params=params, timeout=timeout)
+        resp = requests.get(
+            NVD_API_URL,
+            params={"keywordSearch": f"{product} {version}"},
+            timeout=timeout,
+        )
         if resp.ok:
-            cves = _parse_nvd_response(resp.json(), service)
-            cves = cves[:10]
+            cves = _parse_nvd_response(
+                resp.json(), service, product_filter=product
+            )
+            cves = cves[:15]
     except Exception as e:
-        print(f"  [-] NVD lookup error for {product} {version}: {e}")
-    
-    time.sleep(0.3)
+        print(f"  [-] NVD keyword lookup error: {e}")
+    time.sleep(0.6)
+
     _cve_cache[cache_key] = cves
     return cves
 
@@ -103,26 +98,35 @@ def deterministic_cve_scan(host):
         if not isinstance(svc, dict):
             continue
             
+        port_digits = ''.join(c for c in str(port) if c.isdigit())
+        if not port_digits:
+            continue
+
         product = svc.get("product") or svc.get("name")
         version = svc.get("version")
         if not product or not version:
+            print(f"  [{port}] {product or '?'} — no version, skipping")
             continue
 
-        print(f"  [{port}] {product} {version} — querying NVD...")
+        print(f"  [{port}] {product} {version} — querying NVD…")
         cves = lookup_cves_for_service(svc)
         for c in cves:
             tag = " [EXPLOIT]" if c["exploit_available"] else ""
-            print(f"    -> {c['id']}  CVSS={c['cvss'].get('score', '?')} ({c['cvss'].get('severity', '?')}){tag}")
+            print(
+                f"    → {c['id']}  "
+                f"CVSS={c['cvss'].get('score', '?')} "
+                f"({c['cvss'].get('severity', '?')}){tag}"
+            )
         all_cves.extend(cves)
 
     if all_cves:
-        all_cves = sorted(all_cves, key=lambda c: (c["exploit_available"], c["cvss"].get('score', 0)), reverse=True)[:20]
+        all_cves = sorted(all_cves, key=lambda c: c['cvss'].get('score', 0), reverse=True)[:50]
         
         merge(
             host.vulnerabilities,
             {"cve_scan": {"source": "nvd", "count": len(all_cves), "cves": all_cves}},
         )
-        print(f"[+] Deterministic scan found {len(all_cves)} prioritized CVE(s) (Top 20 saved).\n")
+        print(f"[+] Deterministic scan found {len(all_cves)} CVE(s) (limited to top 50).\n")
     else:
         print("[*] No CVEs found.\n")
     return all_cves

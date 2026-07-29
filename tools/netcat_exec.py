@@ -1,4 +1,5 @@
 import socket
+import time
 from tools.registry import register
 from tools.base import Tool, Param
 
@@ -13,8 +14,15 @@ def _netcat_exec(args: dict) -> dict:
             s.settimeout(timeout)
             s.connect((target_ip, port))
             
+            time.sleep(0.5)
+            
+            s.sendall(b"\n")
+            time.sleep(0.5)
+            
             if command:
                 s.sendall(f"{command}\n".encode())
+            
+            time.sleep(1)
             
             response = b""
             try:

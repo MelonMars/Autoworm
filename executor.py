@@ -28,7 +28,8 @@ Example Output:
 def execute_action(action, tool, host, search_tools=None, search_tool_objects=None, max_retries=2, planned_args=None, max_search_steps=5):
     # action, exec_tool, host, search_tools, max_steps=5
     PRIMITIVE_TOOLS = ["netcat_exec", "ssh_exec", "ssh_put", "http_request", "exploit_exec"]
-    if search_tools and tool.name not in PRIMITIVE_TOOLS and "search" not in (tool.category or []):
+    NO_RESEARCH_TOOLS = {"nmap", "ping", "traceroute"}
+    if search_tools and tool.name not in PRIMITIVE_TOOLS and tool.name not in NO_RESEARCH_TOOLS and "search" not in (tool.category or []):
         findings = run_research(action, tool, host, search_tools=search_tools, search_tool_objects=search_tool_objects, max_steps=max_search_steps)
     else:
         findings = ""
@@ -83,6 +84,7 @@ Host IP: {host.ip}
             return {"ok": False, "error": "insufficient_privilege",
                     "need": need, "have": current_privilege(), "args": args}, raw
 
+        print(f"[*] Executing tool '{tool.name}' with arguments: {args}")
         if tool.execute_fn is not None:
             if "_host" in {p.name for p in tool.params}:
                 args["_host"] = host
@@ -93,6 +95,8 @@ Host IP: {host.ip}
         if result.get("code") == 0:
             return {"ok": True, "args": args, "rationale": parsed.get("rationale"),
                     "result": result, "attempts": attempt + 1}, raw
+        elif result.get("code") == 124:
+            return {"ok": False, "error": "timeout", "args": args, "attempts": attempt + 1}, raw
         else:
             print(f"[-] Tool execution failed with code {result.get('code')}, stderr: {result.get('stderr')}")
             stderr_str = result.get("stderr", "").lower()

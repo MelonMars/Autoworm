@@ -59,6 +59,8 @@ def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, ph
     prompt = prompt.replace("{host.vulnerabilities}", str(host.vulnerabilities))
     prompt = prompt.replace("{strategy_directive}", str(strategy_directive or ""))
     prompt = prompt.replace("{cve_context}", str(cve_context or "No context provided."))
+    prompt = prompt.replace("{host.facts}", str(host.facts))
+    prompt = prompt.replace("{host.hostname}", str(host.hostname or "Unknown"))
 
     raw = request_llm(
             prompt,
@@ -76,5 +78,6 @@ def plan_next_actions(host, inferences, signals, unknowns, hypothesis, tools, ph
     if plan_mode == "single" and len(data.get("Next Actions", [])) > 1:
         data["Next Actions"] = [data["Next Actions"][0]]
 
+    print(f"[*] Planned {len(data.get('Next Actions', []))} next actions for phase '{phase}'.")
     data.setdefault("Next Actions", [])
     return data

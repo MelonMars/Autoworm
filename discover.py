@@ -1,6 +1,5 @@
-# discover.py
 from analysis import analyze
-from deterministic_cve_scan import lookup_cves_for_service
+from deterministic_cve_scan import deterministic_cve_scan, lookup_cves_for_service
 from executor import execute_action
 from hypothesizer import generate_hypotheses
 from memory import Campaign, Host, build_working_memory
@@ -13,7 +12,7 @@ from tools.registry import REGISTRY
 from utils import apply_update, merge, sanity_check_args
 from service_validator import validate_services
 
-def run_discovery_subphase(host, campaign, sub_phase_name, tool_filter, max_actions, plan_mode="single"):
+def run_discovery_subphase(host, campaign, sub_phase_name, tool_filter, max_actions, plan_mode="full"):
     actions_queue = []
     actions_taken = 0
     working_mem = build_working_memory(host)
@@ -33,16 +32,10 @@ def run_discovery_subphase(host, campaign, sub_phase_name, tool_filter, max_acti
 
     actions_queue = list(initial_plan.get("Next Actions", []))
 
-    while actions_queue and actions_taken < max_actions:
+    while actions_taken < max_actions:
         if not actions_queue:
-            next_plan = plan_next_actions(
-                host, [], [], [], None, tool_filter, sub_phase_name, None, 
-                plan_mode=plan_mode, overarching_strategy=strategy
-            )
-            actions_queue = list(next_plan.get("Next Actions", []))
-            if not actions_queue:
-                break
-
+            print(f"[*] No more planned actions for {sub_phase_name}.")
+            break
         step = actions_queue.pop(0)
         tool = REGISTRY.get(step["tool"], category="recon")
         
@@ -111,7 +104,18 @@ def run_discovery_phase(host: Host, campaign: Campaign, plan_mode="single"):
     print("[*] ========================================")
 
     light_tools = filter_tools(REGISTRY, "recon")
-    status = run_discovery_subphase(host, campaign, "enum_host_light", light_tools, max_actions=5, plan_mode=plan_mode)
+    nmap_tool = REGISTRY.get("nmap", category="recon")
+    fast_result = nmap_tool.execute_fn({
+        "target_ip": host.ip,
+        "scan_type": "quick",
+        "ports": "1-1000"
+    })
+
+    normalized = normalize_tool_output_search(nmap_tool, fast_result["stdout"], host)
+    print(f"[*] Nmap quick scan found {len(normalized.get('services', {}))} service(s).")
+    apply_update(host, normalized, campaign)    
+
+    status = run_discovery_subphase(host, campaign, "enum_host_light", light_tools, max_actions=5, plan_mode="full")
     
     if status == "opportunistic_foothold":
         return status

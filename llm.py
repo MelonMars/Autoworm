@@ -63,8 +63,13 @@ def _build_sampling(gen_kwargs):
         if "top_k" in src: params["top_k"] = src["top_k"]
     else:
         params["temperature"] = 0.0
+    
+    # Apply default repetition penalty if not provided to prevent infinite loops
     if "repetition_penalty" in src:
         params["repeat_penalty"] = src["repetition_penalty"]
+    else:
+        params["repeat_penalty"] = 1.1
+        
     return params
 
 def request_llm(prompt, system, max_new_tokens=1024, enable_thinking=True, schema=None, level=0, **gen_kwargs):
@@ -91,13 +96,23 @@ def request_llm(prompt, system, max_new_tokens=1024, enable_thinking=True, schem
     )
 
     result = out["choices"][0]["message"]["content"].strip()
-    close = result.rfind("<tool_call>")
-    if close != -1:
-        result = result[close + len("<tool_call>"):].strip()
+    
+    # Fix: Properly strip <think>...</think> block if present
+    think_end = result.rfind("</think>")
+    if think_end != -1:
+        result = result[think_end + len("</think>"):].strip()
+    elif result.startswith("<think>"):
+        # If the model started thinking but never closed it (e.g. hit max tokens or looped),
+        # we have to discard the entire output as it's incomplete.
+        logger.warning("LLM generated an unclosed <think> block. Discarding output.")
+        result = ""
 
     return result
 
 def extract_json(text):
+    if not text:
+        raise ValueError("Empty text provided to extract_json")
+        
     json_match = re.search(r'<json>\s*(.*?)\s*</json>', text, re.DOTALL)
     if json_match:
         text = json_match.group(1)

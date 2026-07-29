@@ -42,13 +42,17 @@ def format_vulns(vulns):
     
     cve_scan = vulns.get("cve_scan", {})
     if cve_scan.get("cves"):
-        for cve in cve_scan["cves"]:
+        cves = cve_scan["cves"]
+        for cve in cves[:25]:
             cve_id = cve.get("id", "Unknown")
             score = cve.get("cvss", {}).get("score", "N/A")
             exploit = " (Exploit Available!)" if cve.get("exploit_available") else ""
             lines.append(f"- {cve_id} [CVSS: {score}]{exploit}")
+            
+        if len(cves) > 25:
+            lines.append(f"... [omitted {len(cves) - 25} additional CVEs to save context]")
     else:
-        lines.append(str(vulns))
+        lines.append(str(vulns)[:500])
         
     return "\n".join(lines) + "\n"
 

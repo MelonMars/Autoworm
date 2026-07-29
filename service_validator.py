@@ -68,7 +68,12 @@ def validate_services(host) -> dict:
         if not isinstance(svc, dict):
             continue
             
-        port_int = int(''.join(c for c in port if c.isdigit()))
+        port_digits = ''.join(c for c in str(port) if c.isdigit())
+        if not port_digits:
+            print(f"  [-] Skipping malformed service entry with key: '{port}'")
+            continue
+            
+        port_int = int(port_digits)
         services_to_check[port] = svc
         
         print(f"  [{port}] Connecting to grab raw banner...")

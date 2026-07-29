@@ -75,7 +75,7 @@ def _nmap_execute(args: dict) -> dict:
     cmd.append(target)
 
     try:
-        timeout = 300 if scan_type == "full_tcp" else 120
+        timeout = 600 if scan_type == "version" else 300 if scan_type == "full_tcp" else 240
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return {
             "cmd": " ".join(cmd),
