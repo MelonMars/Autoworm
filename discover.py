@@ -97,6 +97,33 @@ def run_discovery_subphase(host, campaign, sub_phase_name, tool_filter, max_acti
                 break
 
     return "continue"
+def _lookup_cve_data(host, cve_id: str) -> dict | None:
+    if not isinstance(host.vulnerabilities, dict):
+        return None
+    if cve_id in host.vulnerabilities and isinstance(host.vulnerabilities[cve_id], dict):
+        return host.vulnerabilities[cve_id]
+    scan = host.vulnerabilities.get("cve_scan", {})
+    for c in scan.get("cves", []):
+        if c.get("id") == cve_id:
+            return c
+    return None
+
+def rank_hypotheses(hypotheses: list[dict], host) -> list[dict]:
+    def score(h):
+        s = float(h.get("confidence", 0.5))
+        cve_id = h.get("cve_id")
+        if cve_id:
+            cve_data = _lookup_cve_data(host, cve_id)
+            if cve_data:
+                if cve_data.get("exploit_available") or cve_data.get("edb_ids"):
+                    s += 2.0
+                cvss = cve_data.get("cvss", {}).get("score", 0) if isinstance(cve_data.get("cvss"), dict) else 0
+                s += float(cvss) / 10.0
+
+            if any(k in h.get("description", "").lower() for k in ["unencrypted", "cleartext", "sniff"]):
+                s -= 0.5
+        return s
+    return sorted(hypotheses, key=score, reverse=True)
 
 def run_discovery_phase(host: Host, campaign: Campaign, plan_mode="single"):
     print("[*] ========================================")
@@ -138,7 +165,7 @@ def run_discovery_phase(host: Host, campaign: Campaign, plan_mode="single"):
 
     final_analysis = analyze(host, campaign.graph)
     new_hypotheses = generate_hypotheses(host, final_analysis["inferences"], final_analysis["signals"])
-    host.hypotheses.extend(new_hypotheses.get("Hypotheses", []))
+    host.hypotheses.extend(rank_hypotheses(new_hypotheses.get("Hypotheses", []), host))
     
     progress = assess_progress(host.hypotheses, final_analysis["unknowns"], None, "enum_host")
     

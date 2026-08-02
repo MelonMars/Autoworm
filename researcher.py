@@ -88,18 +88,6 @@ OS: {host.os}   Hostname: {host.hostname}   Host IP: {host.ip}
         f"{f['tool']}({f['args']}): {f['observation']}" for f in findings
     )
 
-SEARCH_SYSTEM = """You are the research phase of an executor agent. Before an action is executed, you may gather information using the available search tools.
-
-Decide ONE step at a time. Output JSON:
-{
-  "action": "search" | "done",
-  "tool": str,        // required when action=="search"; must be a listed search tool
-  "arguments": {},    // args matching that tool's schema
-  "rationale": str
-}
-
-Use "done" once you have enough information. You only have the search tools here; you cannot execute the main action."""
-
 WEAPONIZATION_SYSTEM = """You are an exploit weaponizer. You are given raw research findings about a vulnerability.
 Your job is to synthesize this into a concrete Python3 script that triggers the vulnerability and executes a propagation dropper.
 
@@ -144,7 +132,8 @@ Known Facts: {host.facts}
                 prompt += f"- {f['tool']}({f['args']}) -> {f['observation'][:500]}\n"
 
         raw = request_llm(prompt, system=SEARCH_SYSTEM,
-                          enable_thinking=True, do_sample=False, max_new_tokens=2048)
+                          enable_thinking=True, do_sample=False, max_new_tokens=2048,
+                          level=1)
         try:
             parsed = extract_json(raw)
         except Exception:
@@ -198,7 +187,8 @@ Synthesize this information into a weaponized Python3 exploit script.
         system=WEAPONIZATION_SYSTEM,
         enable_thinking=True, 
         do_sample=False, 
-        max_new_tokens=2048
+        max_new_tokens=2048,
+        level=1
     )
 
     if raw_code.startswith("```python"):
@@ -361,7 +351,8 @@ Available Search Tools:
             prompt += "\nStart by looking up the CVE details."
 
         raw = request_llm(prompt, system=system_prompt,
-                          enable_thinking=True, do_sample=False, max_new_tokens=4096)
+                          enable_thinking=True, do_sample=False, max_new_tokens=4096,
+                          level=1)
         
         try:
             parsed = extract_json(raw)

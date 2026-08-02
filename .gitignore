@@ -17,3 +17,5 @@ gemma-4-E4B/
 vendor/
 nmap_scripts/
 *.pyc
+msf_runs/
+looted_keys/

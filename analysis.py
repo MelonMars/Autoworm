@@ -72,7 +72,7 @@ Hostname: {host.hostname}
             system=ANALYZE_SYSTEM,
             enable_thinking=True,
             do_sample=False,
-            max_new_tokens=4096
+            max_new_tokens=8192
         )
     print("Analysis return raw: ", raw)
     try:

@@ -1,52 +1,88 @@
 from memory import Host, Hypothesis
 from llm import request_llm, extract_json
 
-HYPOTHESIZER_SYSTEM = """You are a hypothesis generator for an authorized penetration test. Your job is to generate hypotheses about potential vulnerabilities in a host, based on the host's known facts, its relationships to other hosts/services, and any inferences or signals from the analysis stage.
+HYPOTHESIZER_SYSTEM = """You are a hypothesis generator for an authorized autonomous penetration testing agent. 
+Your job is to analyze a host's known facts, services, and vulnerabilities, then output actionable exploitation hypotheses.
 
-You are given the host's known facts, its edges to other hosts/services, and any inferences or signals from the analysis stage. Reason across them: combine separate facts into conclusions, flag what's missing, and surface anything security-relevant.
+# CRITICAL PRIORITY RULES
+1. CVE-DRIVEN FIRST: If the input contains CVEs, you MUST prioritize them above all else. 
+   - If a CVE has `exploit_available: True`, it is your #1 priority. You MUST generate a hypothesis for it.
+   - Rank CVE hypotheses by: Exploit Available -> CVSS Score (descending) -> Network Attack Vector.
+   - The hypothesis description MUST explicitly state the CVE ID, the affected product, and the target port.
+2. NO GENERIC PROTOCOL FLAWS IF EXPLOITABLE CVEs EXIST: Do NOT generate low-value hypotheses like "Telnet is unencrypted (CWE-311)" or "SSH lateral movement" if the host has a CVE with a public exploit. Only generate generic CWE hypotheses if there are ZERO exploitable CVEs on the host.
+3. STRICT ACCURACY: Do not invent CVEs. Do not attach a CVE to the wrong port. If a CVE affects vsftpd on port 21, the hypothesis MUST target port 21.
 
-CWE CLASSES TO CONSIDER:
-- CWE-284/CWE-862 (improper access control/authorization): Missing auth checks, IDOR, privilege escalation via parameter manipulation
-- CWE-798 (hard-coded/default credentials): Default accounts,出厂密码, vendor default logins
-- CWE-287 (improper authentication): Weak login, session fixation, auth bypass via parameter tampering
-- CWE-22 (path traversal): File inclusion, directory traversal in web parameters
-- CWE-89/CWE-78 (injection): SQL injection, command injection, template injection
-- CWE-434 (unrestricted file upload): Web shell upload, executable upload
-- CWE-250/CWE-269 (improper privilege management): SUID binaries, misconfigured sudoers, writable config files
-- CWE-311/CWE-312 (sensitive data exposure): Credentials in config files, memory dumps, cleartext protocols
-- CWE-77 (command injection): OS command injection through web parameters or service inputs
+# EXPLOIT APPROACH SELECTION
+You must assign an `exploit_approach` to each hypothesis:
+- "edb_exploit": Use if the CVE has `exploit_available: True` or a known ExploitDB ID.
+- "custom_code": Use if it is a known CVE but no public exploit is available, requiring a custom script.
+- "cred_attack": Use for default credentials, weak passwords, or brute force attacks.
+- "web_exploit": Use for web application vulnerabilities like SQLi, LFI, RFI, or web shell uploads.
 
-VULNERABILITY CHAINING:
-- Think in multi-step chains, not just single vulnerabilities.
-- Example: information disclosure → credential theft → SSH access → privilege escalation
-- Example: web app auth bypass → admin panel → file upload → webshell → reverse shell
-- Example: open service enumeration → default credentials → service exploitation → lateral movement
-- When generating hypotheses, note what information or access each step would provide for the next step.
+# OUTPUT SCHEMA
+Output ONLY a single JSON object. No prose, no markdown fences.
+{
+  "Hypotheses": [
+    {
+      "description": "string - Concise statement including CVE ID, product, port, and the vulnerability type.",
+      "cve_id": "string or null - The CVE ID (e.g., 'CVE-2011-2523') if applicable, else null.",
+      "cvss": "float or null - The CVSS score if known, else null.",
+      "evidence": ["string - Facts, services, or CVE data from the input that support this."],
+      "confidence": "float - 0.0 to 1.0 (Use >0.8 for CVEs with public exploits).",
+      "cwe": ["string - Relevant CWE IDs, e.g., ['CWE-78']. Empty list if none."],
+      "chain": "string or null - If multi-step, describe the chain (e.g., 'ftp_backdoor_trigger -> bind_shell_port_6200 -> root_access').",
+      "exploit_approach": "string - One of: 'edb_exploit', 'custom_code', 'cred_attack', 'web_exploit'"
+    }
+  ],
+  "Further Investigation": [
+    {
+      "question": "string - A specific question to validate/refute the hypothesis.",
+      "why": "string - Why this question is relevant."
+    }
+  ]
+}
 
-Keep in mind there may be more vulnerabilities than just CWEs, such as simple CVEs, misconfigurations, or logic flaws. Your goal is to generate hypotheses that could be tested in the next phase of the penetration test.
-If a hypothesis does not have a corresponding CWE, leave the "cwe" field empty ([]). If a hypothesis is multi-step, describe the chain in the "chain" field.
-
-Schema: {
-    "Hypotheses": [
-        {
-            "description": str, // a concise statement of the hypothesis (can include chain steps)
-            "evidence": [str], // a list of facts, inferences, or signals that support this hypothesis
-            "confidence": float, // a float 0-1: how likely this hypothesis is to be true
-            "cwe": [str], // relevant CWE IDs
-            "chain": str or null, // if multi-step, describe the chain (e.g. "info_disclosure -> cred_theft -> ssh_access")
-            "exploit_approach": str // high-level approach: "http_request", "exploit_exec", etc.
-        },
-        ...
-    ],
-    "Further Investigation": [
-        {
-            "question": str, // a specific question that could help validate or refute the hypothesis
-            "why": str, // a brief explanation of why this question is relevant
-        },
-        ...
-    ]
+# EXAMPLE OUTPUT
+{
+  "Hypotheses": [
+    {
+      "description": "Exploit CVE-2011-2523 in vsftpd 2.3.4 on port 21 (Backdoor Command Execution)",
+      "cve_id": "CVE-2011-2523",
+      "cvss": 9.8,
+      "evidence": ["Service on port 21 is vsftpd 2.3.4", "CVE-2011-2523 has exploit_available: True"],
+      "confidence": 0.95,
+      "cwe": ["CWE-78"],
+      "chain": "send_ftp_user_smiley -> connect_bind_shell_6200 -> execute_commands_as_root",
+      "exploit_approach": "edb_exploit"
+    }
+  ],
+  "Further Investigation": [
+    {
+      "question": "Is the vsftpd 2.3.4 service still responding, or has the backdoor already been triggered?",
+      "why": "If the service is crashed, we need to restart it or wait before attempting the exploit."
+    }
+  ]
 }
 """
+
+def render_vulns_for_hypothesizer(host):
+    lines = ["## KNOWN VULNERABILITIES (prioritized)"]
+    scan = host.vulnerabilities.get("cve_scan", {}) if isinstance(host.vulnerabilities, dict) else {}
+    cves = scan.get("cves", [])
+
+    cves_sorted = sorted(
+        cves,
+        key=lambda c: (c.get("exploit_available", False), c.get("cvss", {}).get("score", 0) if isinstance(c.get("cvss"), dict) else 0),
+        reverse=True
+    )
+    for c in cves_sorted[:15]:
+        flag = " [EXPLOIT PUBLIC]" if c.get("exploit_available") else ""
+        port = c.get("matched_port", "?")
+        prod = c.get("matched_product", "?")
+        ver  = c.get("matched_version", "?")
+        score = c.get("cvss", {}).get("score", "?") if isinstance(c.get("cvss"), dict) else "?"
+        lines.append(f"- {c['id']} (CVSS {score}) on port {port}/{prod} {ver}{flag}")
+    return "\n".join(lines)
 
 def generate_hypotheses(host: Host, inferences: list[dict], signals: list[dict]):
     prompt = f"""
@@ -62,7 +98,8 @@ Signals: {signals}
             system=HYPOTHESIZER_SYSTEM,
             enable_thinking=True,
             do_sample=False,
-            max_new_tokens=4096
+            max_new_tokens=4096,
+            level=1
         )
     
     try:

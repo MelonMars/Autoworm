@@ -8,6 +8,9 @@ def ssh_exec_cmd(a: dict) -> list[str]:
         "-o", "StrictHostKeyChecking=no",
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=10",
+
+        "-o", "HostKeyAlgorithms=+ssh-rsa,ssh-dss",
+        "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa",
         f"{a['user']}@{a['target_ip']}",
         a["command"],
     ]

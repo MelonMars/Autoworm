@@ -32,15 +32,58 @@ Schema:
 }
 """
 
+EXCLUDE_DIRS = {
+    "models",
+    "__pycache__",
+    ".git",
+    "nmap_scripts",
+    "msf_runs",
+    "exploit_runs",
+    "nodedata",
+    "gemma-4-E4B",
+    ".vscode",
+}
+
+EXCLUDE_EXTS = {
+    ".gguf",
+    ".pth",
+    ".bin",
+    ".safetensors",
+    ".pkl",
+    ".onnx",
+}
+
+def _build_ignore_patterns():
+    patterns = list(EXCLUDE_DIRS)
+    for ext in EXCLUDE_EXTS:
+        patterns.append(f"*{ext}")
+    return shutil.ignore_patterns(*patterns)
+
+def _should_skip(name):
+    if name in EXCLUDE_DIRS:
+        return True
+    ext = os.path.splitext(name)[1].lower()
+    if ext in EXCLUDE_EXTS:
+        return True
+    return False
+
+
 def mutate_worm_source(source_dir):
     staging_dir = tempfile.mkdtemp(prefix="worm_stage_")
     print(f"[*] Created metamorphic staging directory: {staging_dir}")
-    
+
+    ignore_fn = _build_ignore_patterns()
+
     for item in os.listdir(source_dir):
         s = os.path.join(source_dir, item)
         d = os.path.join(staging_dir, item)
+
+        if _should_skip(item):
+            print(f"[*] Skipping (excluded): {item}")
+            continue
+
         if os.path.isdir(s):
-            shutil.copytree(s, d, dirs_exist_ok=True)
+            shutil.copytree(s, d, dirs_exist_ok=True, ignore=ignore_fn)
         else:
             shutil.copy2(s, d)
 
@@ -55,10 +98,10 @@ def mutate_worm_source(source_dir):
         filepath = os.path.join(staging_dir, filename)
         if not os.path.exists(filepath):
             continue
-            
+
         with open(filepath, "r", encoding="utf-8") as f:
             original_code = f.read()
-            
+
         if len(original_code) > 12000:
             print(f"[-] Skipping {filename} (too large for mutation context)")
             continue
@@ -71,39 +114,39 @@ SOURCE CODE:
 """
 
         print(f"[*] Requesting Level 1 (27B) model to mutate {filename}...")
-        
+
         raw = request_llm(
-            prompt, 
-            system=MUTATOR_SYSTEM, 
-            level=1, 
-            enable_thinking=True, 
-            do_sample=True, 
-            temperature=0.7, 
+            prompt,
+            system=MUTATOR_SYSTEM,
+            level=1,
+            enable_thinking=True,
+            do_sample=True,
+            temperature=0.7,
             max_new_tokens=4096
         )
 
         try:
             data = extract_json(raw)
             diffs = data.get("diffs", [])
-            
+
             mutated_code = original_code
             mutations_applied = 0
-            
+
             for diff in diffs:
                 find_str = diff.get("find", "")
                 replace_str = diff.get("replace", "")
-                
+
                 if find_str and find_str in mutated_code:
                     mutated_code = mutated_code.replace(find_str, replace_str)
                     mutations_applied += 1
-                    
+
             if mutations_applied > 0:
                 with open(filepath, "w", encoding="utf-8") as f:
                     f.write(mutated_code)
                 print(f"[+] Successfully applied {mutations_applied} mutations to {filename}")
             else:
                 print(f"[-] No valid mutations applied to {filename}")
-                
+
         except Exception as e:
             print(f"[-] Failed to parse mutations for {filename}: {e}")
 

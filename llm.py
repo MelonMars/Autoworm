@@ -1,4 +1,3 @@
-# llm.py
 from functools import lru_cache
 import json
 import re
@@ -18,13 +17,13 @@ def _to_json_schema(schema):
 logger = logging.getLogger(__name__)
 
 MODEL_PATHS = {
-    1: "./models/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-Q5_K_M.gguf",
+    1: "./models/Qwen3.6-27B-Abliterated-Heretic-Uncensored-Q4_K_M.gguf",
     0: "./models/Qwen3-4B-Q5_K_M.gguf",
 }
 
 MODEL_OPTS = {
     0: {"n_ctx": 16384,  "n_gpu_layers": -1, "n_batch": 512},
-    1: {"n_ctx": 16384, "n_gpu_layers": -1, "n_batch": 512},
+    1: {"n_ctx": 4096, "n_gpu_layers": -1, "n_batch": 512},
 }
 
 _MODELS = {}
@@ -47,12 +46,8 @@ def _get_model(level=0):
             verbose=False,
             **MODEL_OPTS[level],
         )
+        print(f"[+] Loaded LLM model for level {level}: {MODEL_PATHS[level]}")
     return _MODELS[level]
-
-def unload_model(level):
-    llm = _MODELS.pop(level, None)
-    if llm is not None:
-        llm.close()
 
 def _build_sampling(gen_kwargs):
     src = {k: v for k, v in gen_kwargs.items() if k in _ALLOWED_GEN_KWARGS}
@@ -64,7 +59,6 @@ def _build_sampling(gen_kwargs):
     else:
         params["temperature"] = 0.0
     
-    # Apply default repetition penalty if not provided to prevent infinite loops
     if "repetition_penalty" in src:
         params["repeat_penalty"] = src["repetition_penalty"]
     else:
@@ -72,9 +66,26 @@ def _build_sampling(gen_kwargs):
         
     return params
 
-def request_llm(prompt, system, max_new_tokens=1024, enable_thinking=True, schema=None, level=0, **gen_kwargs):
+def loaded_levels():
+    return list(_MODELS.keys())
+
+def unload_model(level):
+    llm = _MODELS.pop(level, None)
+    if llm is not None:
+        logger.info("Unloading level %s", level)
+        llm.close()
+
+import time
+
+def request_llm(prompt, system, max_new_tokens=1024, enable_thinking=True, schema=None, level=0, stream_debug=False, **gen_kwargs):
+    if level != 0:
+        level = 0
+    for other_level in list(_MODELS):
+        if other_level != level:
+            unload_model(other_level)
+
     llm = _get_model(level=level)
-    
+
     user_content = (
         prompt
         + "\n\nOutput your final answer as a single JSON object. You may wrap it in <json> tags if helpful."
@@ -82,12 +93,15 @@ def request_llm(prompt, system, max_new_tokens=1024, enable_thinking=True, schem
     if not enable_thinking:
         user_content += " /no_think"
 
+    if level == 1:
+        stream_debug = True
+
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user_content},
     ]
 
-    out = llm.create_chat_completion(
+    common_kwargs = dict(
         messages=messages,
         max_tokens=max_new_tokens,
         response_format={"type": "json_object", "schema": _to_json_schema(schema)} if schema else None,
@@ -95,15 +109,27 @@ def request_llm(prompt, system, max_new_tokens=1024, enable_thinking=True, schem
         **_build_sampling(gen_kwargs),
     )
 
-    result = out["choices"][0]["message"]["content"].strip()
-    
-    # Fix: Properly strip <think>...</think> block if present
+    if stream_debug:
+        start = time.time()
+        n_tokens = 0
+        chunks = []
+        for chunk in llm.create_chat_completion(stream=True, **common_kwargs):
+            delta = chunk["choices"][0]["delta"].get("content", "")
+            if delta:
+                n_tokens += 1
+                chunks.append(delta)
+                print(delta, end="", flush=True)
+        elapsed = time.time() - start
+        logger.info("Generated ~%d tokens in %.1fs (%.2f tok/s)", n_tokens, elapsed, n_tokens / elapsed if elapsed else 0)
+        result = "".join(chunks).strip()
+    else:
+        out = llm.create_chat_completion(**common_kwargs)
+        result = out["choices"][0]["message"]["content"].strip()
+
     think_end = result.rfind("</think>")
     if think_end != -1:
         result = result[think_end + len("</think>"):].strip()
     elif result.startswith("<think>"):
-        # If the model started thinking but never closed it (e.g. hit max tokens or looped),
-        # we have to discard the entire output as it's incomplete.
         logger.warning("LLM generated an unclosed <think> block. Discarding output.")
         result = ""
 
@@ -159,5 +185,5 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     prompt = "What is the capital of France?"
     system = "You are a helpful assistant."
-    response = request_llm(prompt, system)
+    response = request_llm(prompt, system, level=1)
     print(f"LLM Response: {response}")
